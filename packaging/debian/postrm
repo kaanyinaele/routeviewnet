@@ -1,0 +1,25 @@
+#!/bin/sh
+# postrm — spec §15.4: `dpkg -r` (remove) preserves data and config;
+# `dpkg -P` (purge) removes the database, config, sysctl drop-in, and the
+# system user.
+set -e
+
+case "$1" in
+  remove)
+    # Data and config are intentionally left in place.
+    ;;
+  purge)
+    rm -rf /var/lib/routeviewnet
+    rm -rf /etc/routeviewnet
+    rm -f /etc/sysctl.d/60-routeviewnet-ping.conf
+    if getent passwd routeviewnet >/dev/null; then
+      deluser --system routeviewnet >/dev/null 2>&1 || true
+    fi
+    if getent group routeviewnet >/dev/null; then
+      delgroup --system routeviewnet >/dev/null 2>&1 || true
+    fi
+    ;;
+esac
+
+systemctl daemon-reload >/dev/null 2>&1 || true
+exit 0

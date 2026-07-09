@@ -1,0 +1,60 @@
+#!/bin/sh
+# postinst — create the routeviewnet system user, set least-privilege
+# permissions (spec §11.1), and enable unprivileged ICMP where possible
+# (§7.3 privilege ladder [v1.2]).
+set -e
+
+case "$1" in
+  configure)
+    if ! getent passwd routeviewnet >/dev/null; then
+      adduser --system --group --no-create-home \
+        --home /var/lib/routeviewnet routeviewnet
+    fi
+
+    mkdir -p /var/lib/routeviewnet
+    chown routeviewnet:routeviewnet /var/lib/routeviewnet
+    chmod 0700 /var/lib/routeviewnet
+
+    if [ -f /etc/routeviewnet/config.yaml ]; then
+      chown routeviewnet:routeviewnet /etc/routeviewnet/config.yaml
+      chmod 0600 /etc/routeviewnet/config.yaml
+    fi
+
+    # Prefer unprivileged ICMP datagram sockets: extend ping_group_range to
+    # include the routeviewnet group if the kernel has it disabled.
+    RVN_GID="$(getent group routeviewnet | cut -d: -f3)"
+    if [ -n "$RVN_GID" ] && [ -r /proc/sys/net/ipv4/ping_group_range ]; then
+      # dash's `read` builtin cannot parse /proc/sys files directly (they
+      # report EOF after the first read(2)); go through cat instead.
+      read LO HI <<EOF
+$(cat /proc/sys/net/ipv4/ping_group_range)
+EOF
+      if [ "$LO" -gt "$HI" ] || [ "$RVN_GID" -lt "$LO" ] || [ "$RVN_GID" -gt "$HI" ]; then
+        echo "net.ipv4.ping_group_range = $RVN_GID $RVN_GID" \
+          > /etc/sysctl.d/60-routeviewnet-ping.conf
+        sysctl -p /etc/sysctl.d/60-routeviewnet-ping.conf >/dev/null 2>&1 || true
+        echo "routeviewnet: enabled unprivileged ICMP for gid $RVN_GID"
+      fi
+    fi
+
+    # CAP_NET_RAW fallback for kernels/distros where dgram ICMP is not
+    # available (the systemd unit also grants it as AmbientCapabilities).
+    if command -v setcap >/dev/null 2>&1; then
+      setcap cap_net_raw+ep /usr/bin/routeviewnetd || \
+        echo "routeviewnet: setcap failed; latency checks will use unprivileged ICMP or TCP fallback"
+    fi
+
+    # Enable and start the daemon by default; `restart` also picks up new
+    # binaries on upgrade. Users can opt out with `systemctl disable`.
+    if [ -d /run/systemd/system ]; then
+      systemctl daemon-reload >/dev/null 2>&1 || true
+      systemctl enable routeviewnetd.service >/dev/null 2>&1 || true
+      systemctl restart routeviewnetd.service || \
+        echo "routeviewnet: could not start routeviewnetd; check 'journalctl -u routeviewnetd'"
+    fi
+    echo "RouteViewNet installed and running."
+    echo "Launch it from your applications menu or open http://localhost:4545"
+    ;;
+esac
+
+exit 0

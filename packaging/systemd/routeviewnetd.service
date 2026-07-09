@@ -1,0 +1,41 @@
+[Unit]
+Description=RouteViewNet local network monitoring daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/routeviewnetd --config /etc/routeviewnet/config.yaml
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+User=routeviewnet
+Group=routeviewnet
+# CAP_NET_RAW: raw-socket ping fallback. CAP_SYS_PTRACE plus
+# CAP_DAC_READ_SEARCH: read other users' /proc/[pid]/fd to attribute
+# network connections to apps for the per-app data usage feature. Both are
+# read-only visibility: /proc/[pid]/fd needs the ptrace READ check *and*
+# its owner-only directory permissions bypassed; no ptrace attach happens
+# and no write access is granted.
+AmbientCapabilities=CAP_NET_RAW CAP_SYS_PTRACE CAP_DAC_READ_SEARCH
+CapabilityBoundingSet=CAP_NET_RAW CAP_SYS_PTRACE CAP_DAC_READ_SEARCH
+NoNewPrivileges=true
+
+# Sandboxing (spec §15.2 [v1.2]): the daemon only needs read access to
+# /proc and /sys plus write access to its own state directory.
+# ProtectProc/ProcSubset deliberately NOT set — the process-memory
+# collector reads other processes' /proc/[pid]/status.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/routeviewnet
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

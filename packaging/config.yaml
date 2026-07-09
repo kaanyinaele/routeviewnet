@@ -1,0 +1,63 @@
+# RouteViewNet configuration (installed default, spec §12.2).
+# All values shown are the built-in defaults; uncomment to change.
+
+server:
+  host: "127.0.0.1"          # 0.0.0.0 exposes the dashboard to your LAN; no auth in v1!
+  port: 4545
+  cors_allowed_origins: []
+  max_websocket_clients: 20
+  max_history_points: 500
+  allowed_hosts: []
+
+logging:
+  level: "info"              # debug | info | warn | error
+
+storage:
+  path: "/var/lib/routeviewnet/routeviewnet.db"
+  retention_days: 7
+
+collection:
+  interval_seconds: 5
+  enable_device_discovery: true
+  enable_dns_checks: true
+  enable_latency_checks: true
+  enable_connection_collection: true
+  enable_memory_monitoring: true
+  enable_process_memory_monitoring: true
+  enable_load_monitoring: true
+  enable_app_traffic_monitoring: true
+  memory_interval_seconds: 10
+  process_memory_interval_seconds: 30
+  load_interval_seconds: 10
+  app_traffic_interval_seconds: 30
+
+checks:
+  gateway: "auto"
+  primary_interface_override: ""
+  internet_targets:
+    - "1.1.1.1"
+    - "8.8.8.8"
+  dns_domains:
+    - "google.com"
+    - "cloudflare.com"
+  dns_check_aaaa: true
+  ping_mode: "auto"          # auto | icmp-dgram | icmp-raw | tcp
+
+alerts:
+  packet_loss_warning: 5
+  dns_latency_warning_ms: 500
+  gateway_latency_warning_ms: 100
+  traffic_spike_multiplier: 3
+  memory_usage_warning_percent: 90
+  swap_usage_warning_percent: 50
+  daemon_memory_warning_mb: 300
+  load_avg_multiplier_warning: 2.0
+  trigger_debounce_checks: 2
+  resolve_debounce_checks: 2
+
+privacy:
+  telemetry: false
+  store_process_command: false   # may capture secrets in command lines
+
+devices:
+  resolve_hostnames: true

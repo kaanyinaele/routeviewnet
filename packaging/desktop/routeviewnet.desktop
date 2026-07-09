@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=RouteViewNet
+GenericName=Network Health Monitor
+Comment=Local-first network and memory health monitor
+Exec=/usr/bin/routeviewnet-gui
+Icon=routeviewnet
+Terminal=false
+Categories=Network;Monitor;
+Keywords=network;monitor;latency;dns;bandwidth;memory;
+StartupWMClass=routeviewnet-gui
