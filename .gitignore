@@ -1,0 +1,36 @@
+# Build outputs
+routeviewnetd
+routeviewnet-gui
+build/
+*.deb
+
+# Staged dashboard build (a committed placeholder index.html keeps
+# `go build` working before the first web build)
+internal/web/dist/*
+!internal/web/dist/index.html
+
+# Web toolchain
+web/node_modules/
+web/dist/
+web/tsconfig.tsbuildinfo
+npm-debug.log*
+
+# Local dev state (`make run` config, databases, logs)
+tmp/
+*.db
+*.db-wal
+*.db-shm
+*.log
+
+# Go test artifacts
+*.test
+coverage.out
+
+# Editors and OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Claude Code local settings (shared .claude/ config stays committed)
+.claude/settings.local.json
