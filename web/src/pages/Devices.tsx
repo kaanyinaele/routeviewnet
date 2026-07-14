@@ -6,6 +6,8 @@ import { Card, Empty, StatusPill, Td, Th } from "../components/ui";
 export default function DevicesPage() {
   const qc = useQueryClient();
   const { data } = useQuery({ queryKey: ["devices"], queryFn: api.devices });
+  const { data: overview } = useQuery({ queryKey: ["overview"], queryFn: api.overview });
+  const gatewayIP = overview?.gateway_ip;
   const patch = useMutation({
     mutationFn: ({ id, body }: { id: number; body: { nickname?: string; trusted?: boolean } }) =>
       api.patchDevice(id, body),
@@ -40,6 +42,7 @@ export default function DevicesPage() {
                   <DeviceRow
                     key={d.id}
                     device={d}
+                    isGateway={!!gatewayIP && d.ip_address === gatewayIP}
                     onPatch={(body) => patch.mutate({ id: d.id, body })}
                   />
                 ))}
@@ -54,13 +57,26 @@ export default function DevicesPage() {
   );
 }
 
-function DeviceRow({ device: d, onPatch }: { device: Device; onPatch: (b: { nickname?: string; trusted?: boolean }) => void }) {
+function DeviceRow({
+  device: d,
+  isGateway,
+  onPatch,
+}: {
+  device: Device;
+  isGateway: boolean;
+  onPatch: (b: { nickname?: string; trusted?: boolean }) => void;
+}) {
   const [editing, setEditing] = useState(false);
   const [nickname, setNickname] = useState(d.nickname);
 
   return (
     <tr className="border-b" style={{ borderColor: "var(--border)" }}>
-      <Td className="tabular">{d.ip_address}</Td>
+      <Td className="tabular">
+        <span className="inline-flex items-center gap-2">
+          {d.ip_address}
+          {isGateway && <StatusPill status="info" label="your router" />}
+        </span>
+      </Td>
       <Td className="tabular">{d.mac_address || "-"}</Td>
       <Td>{d.hostname || "-"}</Td>
       <Td>{d.vendor || "-"}</Td>

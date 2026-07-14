@@ -44,6 +44,14 @@ dashboard on `:3000` with `/api` proxied to the daemon.
 
 ## Install (Debian/Ubuntu)
 
+One-liner (downloads the latest release from GitHub and installs it):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kaanyinaele/routeviewnet/main/install.sh | sudo sh
+```
+
+Or build and install from source:
+
 ```bash
 make deb
 sudo dpkg -i routeviewnet_1.0.0_amd64.deb

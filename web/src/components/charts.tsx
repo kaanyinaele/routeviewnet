@@ -123,12 +123,23 @@ export function BandwidthChart({ points, height = 220 }: { points: any[]; height
   );
 }
 
-// Sparkline: single-series, chrome-free trend for the health score tile.
-export function Sparkline({ points, dataKey, color }: { points: any[]; dataKey: string; color: string }) {
+// Sparkline: single-series, chrome-free trend line. Defaults to the
+// health score's 0-100 domain; pass a domain for other units.
+export function Sparkline({
+  points,
+  dataKey,
+  color,
+  domain = [0, 100],
+}: {
+  points: any[];
+  dataKey: string;
+  color: string;
+  domain?: [number | string, number | string];
+}) {
   return (
     <ResponsiveContainer width="100%" height={48}>
       <LineChart data={points} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
-        <YAxis hide domain={[0, 100]} />
+        <YAxis hide domain={domain} />
         <Line type="monotone" dataKey={dataKey} stroke={color} strokeWidth={2} dot={false} isAnimationActive={false} />
       </LineChart>
     </ResponsiveContainer>

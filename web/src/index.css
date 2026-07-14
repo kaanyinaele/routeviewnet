@@ -37,3 +37,28 @@ body {
 .tabular {
   font-variant-numeric: tabular-nums;
 }
+
+/* Cursor affordances: everything clickable shows a pointer, everything
+   editable shows the text beam. Buttons default to the plain arrow in
+   browsers, so this must be explicit. The InfoTip "?" badge keeps its own
+   cursor-help. */
+button,
+[role="button"],
+a,
+select,
+summary,
+input[type="checkbox"],
+input[type="radio"],
+label:has(> input[type="checkbox"]),
+label:has(> input[type="radio"]) {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+textarea {
+  cursor: text;
+}
