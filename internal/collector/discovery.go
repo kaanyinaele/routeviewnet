@@ -68,6 +68,14 @@ func (c *DeviceCollector) Collect(ctx context.Context) ([]models.Device, error) 
 		devices[i].Vendor = VendorForMAC(devices[i].MAC)
 		if c.ResolveHostnames {
 			devices[i].Hostname = reverseLookup(cctx, devices[i].IP)
+			// Reverse DNS rarely names LAN devices ("" for most, the
+			// synthetic "_gateway" for the router); ask the device itself
+			// via mDNS before settling for that.
+			if devices[i].Hostname == "" || devices[i].Hostname == "_gateway" {
+				if m := mdnsReverseLookup(cctx, devices[i].IP); m != "" {
+					devices[i].Hostname = m
+				}
+			}
 		}
 	}
 	return devices, nil

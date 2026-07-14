@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { api, formatBytes, formatRate, timeAgo } from "../lib/api";
+import { api, EventRow, formatBytes, formatRate, timeAgo } from "../lib/api";
 import { Card, StatTile, StatusPill, Empty, InfoTip } from "../components/ui";
 import { Sparkline } from "../components/charts";
 
@@ -8,6 +8,36 @@ const scoreColor: Record<string, string> = {
   degraded: "var(--status-warning)",
   critical: "var(--status-critical)",
 };
+
+// describeEvent turns an event's JSON payload into a readable line: which
+// alert fired (its title and message) or which device appeared, instead of
+// just the raw event type.
+function describeEvent(e: EventRow): { status: string; label: string; text: string; detail: string } {
+  try {
+    const p = JSON.parse(e.payload || "{}");
+    if (e.type === "alert.created" || e.type === "alert.resolved") {
+      const resolved = e.type === "alert.resolved";
+      return {
+        status: resolved ? "resolved" : e.severity || "warning",
+        label: resolved ? "resolved" : "alert",
+        text: p.title || e.type,
+        detail: p.message || "",
+      };
+    }
+    if (e.type === "device.discovered") {
+      const who = p.nickname || p.hostname || p.vendor || p.mac_address || "Unknown device";
+      return {
+        status: "info",
+        label: "new device",
+        text: who,
+        detail: p.ip_address ? `joined the network at ${p.ip_address}` : "joined the network",
+      };
+    }
+  } catch {
+    // Unparseable payload: fall through to the generic row.
+  }
+  return { status: e.severity || "info", label: e.type, text: "", detail: "" };
+}
 
 export default function OverviewPage() {
   const { data: o, error } = useQuery({ queryKey: ["overview"], queryFn: api.overview });
@@ -145,12 +175,26 @@ export default function OverviewPage() {
       >
         {o.recent_events?.length ? (
           <ul className="flex flex-col gap-2">
-            {o.recent_events.map((e) => (
-              <li key={e.id} className="flex items-center gap-3 text-sm">
-                <StatusPill status={e.severity || "info"} label={e.type} />
-                <span style={{ color: "var(--ink-muted)" }}>{timeAgo(e.created_at)}</span>
-              </li>
-            ))}
+            {o.recent_events.map((e) => {
+              const d = describeEvent(e);
+              return (
+                <li key={e.id} className="flex items-center gap-3 text-sm">
+                  <StatusPill status={d.status} label={d.label} />
+                  <span
+                    className="min-w-0 flex-1 truncate"
+                    title={d.detail ? `${d.text}: ${d.detail}` : d.text}
+                  >
+                    <span className="font-medium">{d.text}</span>
+                    {d.detail && (
+                      <span style={{ color: "var(--ink-secondary)" }}> · {d.detail}</span>
+                    )}
+                  </span>
+                  <span className="shrink-0" style={{ color: "var(--ink-muted)" }}>
+                    {timeAgo(e.created_at)}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         ) : (
           <Empty text="No events yet." />

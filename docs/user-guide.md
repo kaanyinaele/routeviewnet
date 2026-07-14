@@ -54,18 +54,40 @@ The window you open is just a viewer; more on that below.
 
 ## 3. Installing and opening it
 
-On Ubuntu or another Debian-style Linux, install the package file:
+RouteViewNet runs on Ubuntu and other Debian-style Linux systems. There
+are three ways to install it; pick whichever feels most comfortable.
+
+**The easy way (one command).** Open a terminal, paste this line, and
+press Enter:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kaanyinaele/routeviewnet/main/install.sh | sudo sh
+```
+
+It finds the newest version of RouteViewNet on the project's download
+page, fetches it, and installs it. (`sudo` asks for your password because
+installing software affects the whole computer; that's normal. If you
+like to check before you run things, you can open that install.sh link in
+a browser first; it is a short, readable script.)
+
+**The download way.** Get the `.deb` file from the project's Releases
+page on GitHub, then install it:
 
 ```bash
 sudo dpkg -i routeviewnet_1.0.0_amd64.deb
 ```
 
-(`sudo` asks for your password because installing software affects the
-whole computer; that's normal.)
+Most file managers also let you double-click the .deb, though the
+terminal command gives clearer messages if something goes wrong.
 
-The install does everything for you: the background monitor starts
-immediately and will start itself again after every reboot. You never need
-to touch a terminal again for day-to-day use.
+**The builder's way.** If you want to compile it yourself from the source
+code, the README covers that; it needs some developer tools installed.
+
+Whichever way you choose, the install does everything for you: the
+background monitor starts immediately and will start itself again after
+every reboot. You never need to touch a terminal again for day-to-day
+use. Updating later is the same step again; your settings and history
+survive updates.
 
 To open the app, look for **RouteViewNet** in your applications menu (the
 icon is a small chart with green and blue dots). You can also see the same
@@ -156,7 +178,9 @@ Wi-Fi, or an overloaded connection.
 
 A list of devices your computer has recently talked to on your home
 network: their address, name (when discoverable), and when they were first
-and last seen.
+and last seen. Your router's row is labeled "your router", and devices
+that announce themselves on the network (many phones, TVs, and printers)
+show their friendly name, like "living-room-tv.local".
 
 Two handy features:
 
@@ -176,11 +200,12 @@ RouteViewNet regularly sends tiny test messages to two well-known,
 always-on internet addresses (1.1.1.1 and 8.8.8.8, public services run by
 Cloudflare and Google) and to your router. This page shows the results:
 
-- **One card per tested address**: the latest response time and whether
-  any test messages were lost.
-- **The latency chart**: response times over your chosen window. A calm,
-  flat line is what you want. Spikes mean moments of lag; gaps mean a test
-  failed entirely.
+- **One card per tested address**, named in plain terms ("Your router",
+  "Internet (Cloudflare)"). Each card gives a one-word verdict (excellent,
+  good, fair, slow, or unstable), the typical reply time (the middle value
+  over the window, so one bad spike does not skew it), the worst reply,
+  the share of tests that were answered, and a small trend line where
+  lower is better.
 - **DNS checks**: each row is one "address book" lookup of a test website
   and how long it took. (The "A" and "AAAA" types are just the older and
   newer address formats; both are normal.)
@@ -333,7 +358,7 @@ terminal:
 | Resume monitoring | `sudo systemctl start routeviewnetd` |
 | Stop it from starting at boot | `sudo systemctl disable routeviewnetd` |
 | Check whether the monitor is running | `systemctl status routeviewnetd` |
-| Update to a newer version | `sudo dpkg -i <new .deb file>` (settings and history survive) |
+| Update to a newer version | re-run the install one-liner from section 3, or `sudo dpkg -i <new .deb file>` (settings and history survive) |
 | Uninstall, but keep my history & settings | `sudo dpkg -r routeviewnet` |
 | Uninstall and erase everything | `sudo dpkg -P routeviewnet` |
 
