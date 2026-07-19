@@ -32,7 +32,8 @@ coverage.out
 *.swp
 .DS_Store
 
-# Claude Code local settings (shared .claude/ config stays committed)
+# Claude Code local settings (keep machine-specific config out of GitHub)
 .claude/settings.local.json
 
-docs/
+
+/docs/design/
