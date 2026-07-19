@@ -35,4 +35,4 @@ coverage.out
 # Claude Code local settings (shared .claude/ config stays committed)
 .claude/settings.local.json
 
-doc/
+docs/
