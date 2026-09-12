@@ -83,7 +83,9 @@ export default function SettingsPage() {
     <label className="flex flex-col gap-1 text-sm">
       {label}
       <input
-        value={(path.reduce((o: any, k) => o[k], draft) as string[]).join(", ")}
+        // A list setting that was never set can arrive as null; calling
+        // .join on it would blank the whole Settings page.
+        value={((path.reduce((o: any, k) => o[k], draft) as string[] | null) ?? []).join(", ")}
         onChange={(e) =>
           set(
             path,

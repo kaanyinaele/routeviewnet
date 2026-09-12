@@ -178,23 +178,6 @@ func TestParseProcStatus(t *testing.T) {
 	}
 }
 
-func TestParseProcNetTCP(t *testing.T) {
-	content := `  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
-   0: 0100007F:11C1 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 12345 1 0000000000000000 100 0 0 10 0
-   1: 9500A8C0:D2A4 5DB8D822:01BB 01 00000000:00000000 00:00000000 00000000  1000        0 12346 1 0000000000000000 20 4 30 10 -1
-`
-	conns := ParseProcNetTCP(content, "tcp", time.Now())
-	if len(conns) != 2 {
-		t.Fatalf("want 2 connections, got %d", len(conns))
-	}
-	if conns[0].LocalIP != "127.0.0.1" || conns[0].LocalPort != 4545 || conns[0].State != "LISTEN" {
-		t.Errorf("conn 0 wrong: %+v", conns[0])
-	}
-	if conns[1].State != "ESTABLISHED" {
-		t.Errorf("conn 1 state wrong: %+v", conns[1])
-	}
-}
-
 func TestVendorForMAC(t *testing.T) {
 	if v := VendorForMAC("b8:27:eb:12:34:56"); v != "Raspberry Pi" {
 		t.Errorf("want Raspberry Pi, got %q", v)

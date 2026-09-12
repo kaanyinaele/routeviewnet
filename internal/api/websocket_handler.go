@@ -5,13 +5,10 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
 )
-
-var wsClientCount int64
 
 // originAllowed implements §10.3.4 [v1.2]: CORS does not cover WebSockets,
 // so the upgrade validates Origin itself. No Origin (curl, native clients)
@@ -62,8 +59,11 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "forbidden_origin", "Origin not allowed for WebSocket")
 		return
 	}
+	// Claim the slot before checking it: load-then-add lets concurrent
+	// upgrades both see room and blow past the limit.
 	maxClients := int64(s.Cfg.Get().Server.MaxWebsocketClients)
-	if atomic.LoadInt64(&wsClientCount) >= maxClients {
+	if s.wsClients.Add(1) > maxClients {
+		s.wsClients.Add(-1)
 		// Reject with a clear reason rather than dropping old clients (§10.3.3).
 		writeError(w, http.StatusServiceUnavailable, "too_many_clients",
 			fmt.Sprintf("WebSocket client limit (%d) reached", maxClients))
@@ -77,10 +77,10 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
+		s.wsClients.Add(-1)
 		return
 	}
-	atomic.AddInt64(&wsClientCount, 1)
-	s.Log.Debug("websocket client connected", "clients", atomic.LoadInt64(&wsClientCount))
+	s.Log.Debug("websocket client connected", "clients", s.wsClients.Load())
 
 	events := s.Bus.Subscribe()
 	done := make(chan struct{})
@@ -102,7 +102,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		s.Bus.Unsubscribe(events)
 		conn.Close()
-		atomic.AddInt64(&wsClientCount, -1)
+		s.wsClients.Add(-1)
 	}()
 	var shutdown <-chan struct{}
 	if s.Shutdown != nil {

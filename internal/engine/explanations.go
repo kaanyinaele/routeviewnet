@@ -15,10 +15,10 @@ func Diagnose(ctx context.Context, db *storage.DB) models.Diagnosis {
 	open, err := db.OpenAlerts(ctx)
 	if err != nil {
 		return models.Diagnosis{
-			Status:  "unknown",
-			Summary: "Could not read current alerts.",
-			LikelyCause: "The alert store was unavailable when the diagnosis ran.",
-			Evidence:    []string{err.Error()},
+			Status:           "unknown",
+			Summary:          "Could not read current alerts.",
+			LikelyCause:      "The alert store was unavailable when the diagnosis ran.",
+			Evidence:         []string{err.Error()},
 			SuggestedActions: []string{"Check the daemon logs (journalctl -u routeviewnetd)"},
 		}
 	}
@@ -174,19 +174,19 @@ func Diagnose(ctx context.Context, db *storage.DB) models.Diagnosis {
 
 	case len(open) > 0:
 		return models.Diagnosis{
-			Status:      "warning",
-			Summary:     "Some alerts are open, but no known failure pattern matches.",
-			LikelyCause: "See the open alerts for details.",
-			Evidence:    evidence(RuleNewDevice, RuleHighPacketLoss, RuleTrafficSpike),
+			Status:           "warning",
+			Summary:          "Some alerts are open, but no known failure pattern matches.",
+			LikelyCause:      "See the open alerts for details.",
+			Evidence:         evidence(RuleNewDevice, RuleHighPacketLoss, RuleTrafficSpike),
 			SuggestedActions: []string{"Review the Alerts page"},
 		}
 
 	default:
 		return models.Diagnosis{
-			Status:      "healthy",
-			Summary:     "Everything looks healthy.",
-			LikelyCause: "No open alerts: gateway, internet, DNS, memory, and load are all within normal ranges.",
-			Evidence:    []string{"No open alerts"},
+			Status:           "healthy",
+			Summary:          "Everything looks healthy.",
+			LikelyCause:      "No open alerts: gateway, internet, DNS, memory, and load are all within normal ranges.",
+			Evidence:         []string{"No open alerts"},
 			SuggestedActions: []string{},
 		}
 	}

@@ -197,30 +197,6 @@ func (d *DB) RecentDNSChecks(ctx context.Context, since time.Time, limit int) ([
 	return out, rows.Err()
 }
 
-func (d *DB) InsertConnections(ctx context.Context, cs []models.Connection) error {
-	if len(cs) == 0 {
-		return nil
-	}
-	tx, err := d.write.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO connections (protocol, local_ip, local_port, remote_ip, remote_port, state, collected_at)
-		VALUES (?,?,?,?,?,?,?)`)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-	for _, c := range cs {
-		if _, err := stmt.ExecContext(ctx, c.Protocol, c.LocalIP, c.LocalPort, c.RemoteIP, c.RemotePort, c.State, ts(c.CollectedAt)); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
-}
-
 // LatestInterfaceMetrics returns the most recent sample per interface.
 func (d *DB) LatestInterfaceMetrics(ctx context.Context) (map[string]models.InterfaceMetric, error) {
 	rows, err := d.read.QueryContext(ctx, `

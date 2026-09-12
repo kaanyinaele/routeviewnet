@@ -98,7 +98,6 @@ var retentionTables = map[string]string{
 	"interface_metrics":      "collected_at",
 	"latency_checks":         "collected_at",
 	"dns_checks":             "collected_at",
-	"connections":            "collected_at",
 	"system_memory_metrics":  "collected_at",
 	"process_memory_metrics": "collected_at",
 	"daemon_memory_metrics":  "collected_at",
