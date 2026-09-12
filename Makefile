@@ -4,14 +4,15 @@
 #   make build  - build the daemon (embeds whatever is staged)
 #   make gui    - build the desktop window (needs libgtk-3-dev libwebkit2gtk-4.1-dev)
 #   make all    - web + build + gui
-#   make test   - Go tests + vet
+#   make test   - gofmt check + go vet + Go tests
+#   make fmt    - rewrite Go sources with gofmt
 #   make deb    - assemble routeviewnet.deb
 #   make run    - run locally with a dev config in ./tmp
 
 GO      ?= go
 VERSION ?= 1.0.0
 
-.PHONY: all build web gui test deb run clean
+.PHONY: all build web gui test fmt fmt-check deb run clean
 
 all: web build gui
 
@@ -26,9 +27,20 @@ build:
 gui:
 	$(GO) build -trimpath -ldflags "-s -w" -o routeviewnet-gui ./cmd/routeviewnet-gui
 
-test:
+test: fmt-check
 	$(GO) vet ./...
 	$(GO) test ./...
+
+# gofmt is not enforced by `go vet`, so check it explicitly — CI runs the
+# same gate.
+fmt-check:
+	@unformatted="$$($(GO)fmt -l ./cmd ./internal)"; \
+	if [ -n "$$unformatted" ]; then \
+		echo "not gofmt'd:"; echo "$$unformatted"; exit 1; \
+	fi
+
+fmt:
+	$(GO)fmt -w ./cmd ./internal
 
 deb: all
 	rm -rf build/deb

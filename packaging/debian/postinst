@@ -20,8 +20,10 @@ case "$1" in
       chmod 0600 /etc/routeviewnet/config.yaml
     fi
 
-    # Prefer unprivileged ICMP datagram sockets: extend ping_group_range to
-    # include the routeviewnet group if the kernel has it disabled.
+    # Prefer unprivileged ICMP datagram sockets: widen ping_group_range to
+    # include the routeviewnet group. The range is widened, never replaced —
+    # overwriting it with just our own gid would silently revoke unprivileged
+    # ICMP from every other group the administrator had allowed.
     RVN_GID="$(getent group routeviewnet | cut -d: -f3)"
     if [ -n "$RVN_GID" ] && [ -r /proc/sys/net/ipv4/ping_group_range ]; then
       # dash's `read` builtin cannot parse /proc/sys files directly (they
@@ -29,11 +31,27 @@ case "$1" in
       read LO HI <<EOF
 $(cat /proc/sys/net/ipv4/ping_group_range)
 EOF
-      if [ "$LO" -gt "$HI" ] || [ "$RVN_GID" -lt "$LO" ] || [ "$RVN_GID" -gt "$HI" ]; then
-        echo "net.ipv4.ping_group_range = $RVN_GID $RVN_GID" \
-          > /etc/sysctl.d/60-routeviewnet-ping.conf
-        sysctl -p /etc/sysctl.d/60-routeviewnet-ping.conf >/dev/null 2>&1 || true
-        echo "routeviewnet: enabled unprivileged ICMP for gid $RVN_GID"
+      # Guard against an unreadable or unexpected range: arithmetic tests on
+      # an empty string abort the whole postinst under `set -e`.
+      if [ -n "${LO:-}" ] && [ -n "${HI:-}" ] && \
+         [ "$LO" -eq "$LO" ] 2>/dev/null && [ "$HI" -eq "$HI" ] 2>/dev/null; then
+        NEW_LO="$LO"
+        NEW_HI="$HI"
+        if [ "$LO" -gt "$HI" ]; then
+          # Empty range: ICMP sockets are disabled for everyone. Open it for
+          # this gid alone rather than for the whole system.
+          NEW_LO="$RVN_GID"
+          NEW_HI="$RVN_GID"
+        else
+          if [ "$RVN_GID" -lt "$NEW_LO" ]; then NEW_LO="$RVN_GID"; fi
+          if [ "$RVN_GID" -gt "$NEW_HI" ]; then NEW_HI="$RVN_GID"; fi
+        fi
+        if [ "$NEW_LO" != "$LO" ] || [ "$NEW_HI" != "$HI" ]; then
+          echo "net.ipv4.ping_group_range = $NEW_LO $NEW_HI" \
+            > /etc/sysctl.d/60-routeviewnet-ping.conf
+          sysctl -p /etc/sysctl.d/60-routeviewnet-ping.conf >/dev/null 2>&1 || true
+          echo "routeviewnet: enabled unprivileged ICMP for gid $RVN_GID (range $NEW_LO-$NEW_HI)"
+        fi
       fi
     fi
 
