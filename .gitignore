@@ -1,7 +1,7 @@
 # Build outputs
-routeviewnetd
-routeviewnet-gui
-build/
+/routeviewnetd
+/routeviewnet-gui
+/build/
 *.deb
 
 # Staged dashboard build (a committed placeholder index.html keeps
