@@ -3,7 +3,8 @@ Version: 1.0.0
 Section: net
 Priority: optional
 Architecture: amd64
-Depends: iproute2, systemd, libwebkit2gtk-4.1-0, libgtk-3-0t64 | libgtk-3-0
+Depends: iproute2, systemd
+Recommends: libwebkit2gtk-4.1-0, libgtk-3-0t64 | libgtk-3-0
 Maintainer: RouteViewNet <noreply@routeviewnet.local>
 Description: Local-first Linux network and memory health monitor
  RouteViewNet runs as a local daemon, collects network health signals
@@ -11,3 +12,7 @@ Description: Local-first Linux network and memory health monitor
  metrics, stores them in a local SQLite database, and serves a
  plain-English dashboard at http://localhost:4545. No cloud, no
  telemetry, no account.
+ .
+ The GTK/WebKit stack is only needed for the optional desktop window
+ (routeviewnet-gui) and is a Recommends, so a headless server install
+ does not pull in libraries it will never render with.

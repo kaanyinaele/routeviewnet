@@ -14,7 +14,7 @@ Base: `http://127.0.0.1:4545/api/v1`. JSON responses, error envelope
 | `GET /metrics/bandwidth?range=&interface=` | downsampled rate history |
 | `GET /traffic/apps?range=` | per-app data usage totals over the range (TCP only), heaviest first |
 | `GET /checks/latency?range=` | recent latency checks |
-| `GET /checks/dns?range=` | recent DNS checks (A/AAAA) |
+| `GET /checks/dns?range=` | recent DNS checks (A/AAAA), timed as a round trip to the resolver in `/etc/resolv.conf` |
 | `GET /devices?limit=&cursor=` | discovered devices |
 | `PATCH /devices/{id}` | `{"nickname"?, "trusted"?}` |
 | `GET /alerts?status=&severity=&limit=&cursor=` | alerts |
@@ -27,6 +27,30 @@ Base: `http://127.0.0.1:4545/api/v1`. JSON responses, error envelope
 | `GET /system/daemon/memory` | daemon self-report |
 | `GET /health-score/history?range=` | score trend |
 | `GET /live` | WebSocket upgrade |
+
+## Settings
+
+`GET /settings` returns the config document being edited: the live config plus
+any restart-only change already requested. `POST /settings` takes that whole
+document back (GET → mutate → POST; a partial body keeps current values),
+applies what it can immediately, saves the rest, and answers:
+
+```json
+{"settings": { ...the requested document... }, "restart_required": true}
+```
+
+`restart_required` is true only for `server.host`, `server.port`,
+`storage.path`, and `checks.ping_mode` — a running process cannot rebind its
+listener, reopen its database, or re-derive its ping privileges. Those changes
+are persisted and take effect on the next `systemctl restart routeviewnetd`;
+`settings` keeps showing the requested value meanwhile, so a pending change
+does not look discarded. Everything else applies on the next collection cycle
+with `restart_required: false`.
+
+Settings saved here live in the database and are re-applied at startup, taking
+precedence over `config.yaml`.
+
+Body limits: 64KB, unknown fields rejected (`400 invalid_request`).
 
 ## WebSocket events
 
