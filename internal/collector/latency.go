@@ -101,6 +101,11 @@ func (c *LatencyCollector) Check(ctx context.Context, target, targetType string)
 }
 
 func (c *LatencyCollector) icmpPing(target string, seq int) (time.Duration, error) {
+	ip := net.ParseIP(target)
+	if ip == nil || ip.To4() == nil {
+		return 0, fmt.Errorf("icmp: %q is not an IPv4 address", target)
+	}
+
 	network, listenAddr := "udp4", "0.0.0.0"
 	if c.Mode == PingICMPRaw {
 		network = "ip4:icmp"
@@ -111,14 +116,15 @@ func (c *LatencyCollector) icmpPing(target string, seq int) (time.Duration, erro
 	}
 	defer conn.Close()
 
-	dst := net.Addr(&net.UDPAddr{IP: net.ParseIP(target)})
+	dst := net.Addr(&net.UDPAddr{IP: ip})
 	if c.Mode == PingICMPRaw {
-		dst = &net.IPAddr{IP: net.ParseIP(target)}
+		dst = &net.IPAddr{IP: ip}
 	}
 
+	id := os.Getpid() & 0xffff
 	msg := icmp.Message{
 		Type: ipv4.ICMPTypeEcho, Code: 0,
-		Body: &icmp.Echo{ID: os.Getpid() & 0xffff, Seq: seq, Data: []byte("routeviewnet")},
+		Body: &icmp.Echo{ID: id, Seq: seq, Data: []byte("routeviewnet")},
 	}
 	wb, err := msg.Marshal(nil)
 	if err != nil {
@@ -134,19 +140,48 @@ func (c *LatencyCollector) icmpPing(target string, seq int) (time.Duration, erro
 	}
 	rb := make([]byte, 1500)
 	for {
-		n, _, err := conn.ReadFrom(rb)
+		// A raw ICMP socket receives every echo reply on the host, including
+		// replies to other processes' pings and to our own other targets, so
+		// every reply must be matched back to this request before its round
+		// trip is believed. The read deadline bounds the loop.
+		n, peer, err := conn.ReadFrom(rb)
 		if err != nil {
 			return 0, fmt.Errorf("icmp timeout: %w", err)
 		}
 		rtt := time.Since(start)
-		parsed, err := icmp.ParseMessage(1, rb[:n]) // 1 = ICMPv4
-		if err != nil {
+		if !peerIP(peer).Equal(ip) {
 			continue
 		}
-		if parsed.Type == ipv4.ICMPTypeEchoReply {
-			return rtt, nil
+		parsed, err := icmp.ParseMessage(ianaProtocolICMP, rb[:n])
+		if err != nil || parsed.Type != ipv4.ICMPTypeEchoReply {
+			continue
 		}
+		echo, ok := parsed.Body.(*icmp.Echo)
+		if !ok || echo.Seq != seq {
+			continue
+		}
+		// On a datagram socket the kernel owns the echo ID (it rewrites it to
+		// the socket's port and demuxes replies itself), so only the raw
+		// socket can meaningfully check it.
+		if c.Mode == PingICMPRaw && echo.ID != id {
+			continue
+		}
+		return rtt, nil
 	}
+}
+
+// ianaProtocolICMP is the protocol number ParseMessage needs for ICMPv4.
+const ianaProtocolICMP = 1
+
+// peerIP extracts the address a reply came from, for either socket flavor.
+func peerIP(addr net.Addr) net.IP {
+	switch a := addr.(type) {
+	case *net.UDPAddr:
+		return a.IP
+	case *net.IPAddr:
+		return a.IP
+	}
+	return nil
 }
 
 // tcpProbe measures TCP connect time to :443, falling back to :53 (§7.3.3).

@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -37,6 +38,15 @@ type Server struct {
 
 	// StaticFS serves the embedded dashboard; nil in tests.
 	Static http.Handler
+
+	// SetLogLevel re-points the daemon's log level after a settings change;
+	// nil in tests.
+	SetLogLevel func(level string)
+
+	// wsClients counts live WebSocket connections against
+	// server.max_websocket_clients. Per-Server, not package-global, so two
+	// servers in one process (tests) do not share a budget.
+	wsClients atomic.Int64
 }
 
 func (s *Server) Router() http.Handler {

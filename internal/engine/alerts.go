@@ -12,19 +12,19 @@ import (
 // Rule keys (stable identifiers, §9.2.10). The health-score penalty table
 // (§6.2) is keyed off these.
 const (
-	RuleNewDevice          = "new_device"
-	RuleGatewayUnreachable = "gateway_unreachable"
+	RuleNewDevice           = "new_device"
+	RuleGatewayUnreachable  = "gateway_unreachable"
 	RuleInternetUnreachable = "internet_unreachable"
-	RuleHighPacketLoss     = "high_packet_loss"
-	RuleDNSFailure         = "dns_failure"
-	RuleHighDNSLatency     = "high_dns_latency"
-	RuleInterfaceDown      = "interface_down"
-	RuleDroppedIncreasing  = "dropped_packets_increasing"
-	RuleTrafficSpike       = "traffic_spike"
-	RuleHighMemory         = "high_memory_usage"
-	RuleHighSwap           = "high_swap_usage"
-	RuleDaemonMemoryHigh   = "daemon_memory_high"
-	RuleHighLoad           = "high_system_load"
+	RuleHighPacketLoss      = "high_packet_loss"
+	RuleDNSFailure          = "dns_failure"
+	RuleHighDNSLatency      = "high_dns_latency"
+	RuleInterfaceDown       = "interface_down"
+	RuleDroppedIncreasing   = "dropped_packets_increasing"
+	RuleTrafficSpike        = "traffic_spike"
+	RuleHighMemory          = "high_memory_usage"
+	RuleHighSwap            = "high_swap_usage"
+	RuleDaemonMemoryHigh    = "daemon_memory_high"
+	RuleHighLoad            = "high_system_load"
 )
 
 // immediateRules skip trigger debounce (§8.4.1 exception).
@@ -83,14 +83,25 @@ func (e *AlertEngine) Observe(ctx context.Context, obs Observation) {
 
 	e.mu.Lock()
 	k := key(obs.RuleKey, obs.Source)
-	if obs.Failing {
+	var fails, oks int
+	switch {
+	case obs.Failing:
+		delete(e.healthy, k)
 		e.failures[k]++
-		e.healthy[k] = 0
-	} else {
+		fails = e.failures[k]
+	case open != nil:
+		delete(e.failures, k)
 		e.healthy[k]++
-		e.failures[k] = 0
+		oks = e.healthy[k]
+	default:
+		// Healthy with nothing open: there is no debounce in progress, so
+		// there is no counter worth keeping. Dropping it bounds these maps,
+		// which are keyed per rule+source — and "source" for the new-device
+		// rule is an ip/mac pair, one more entry for every address a DHCP
+		// lease ever hands out.
+		delete(e.failures, k)
+		delete(e.healthy, k)
 	}
-	fails, oks := e.failures[k], e.healthy[k]
 	e.mu.Unlock()
 
 	switch {

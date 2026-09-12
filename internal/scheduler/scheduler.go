@@ -80,7 +80,9 @@ func (s *Scheduler) Start(ctx context.Context) {
 		func() bool { return cfg().Collection.EnableLoadMonitoring }, s.Mgr.RunLoadCycle)
 
 	s.loop(ctx, "process_memory",
-		func() time.Duration { return time.Duration(cfg().Collection.ProcessMemoryIntervalSeconds) * time.Second },
+		func() time.Duration {
+			return time.Duration(cfg().Collection.ProcessMemoryIntervalSeconds) * time.Second
+		},
 		func() bool { return cfg().Collection.EnableProcessMemoryMonitoring }, s.Mgr.RunProcessMemoryCycle)
 
 	s.loop(ctx, "app_traffic",

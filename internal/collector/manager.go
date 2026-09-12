@@ -27,18 +27,17 @@ type Manager struct {
 	Devices    *DeviceCollector
 	Latency    *LatencyCollector
 	DNS        *DNSCollector
-	Conns      *ConnectionCollector
 	Memory     *MemoryCollector
 	Load       *LoadCollector
 	ProcMem    *ProcessMemoryCollector
 	DaemonMem  *DaemonMemoryCollector
 	AppTraffic *AppTrafficCollector
 
-	mu          sync.RWMutex
-	primary     string
-	gateway     string
-	prevDrops   map[string]uint64
-	memTotal    uint64
+	mu        sync.RWMutex
+	primary   string
+	gateway   string
+	prevDrops map[string]uint64
+	memTotal  uint64
 }
 
 func NewManager(db *storage.DB, bus *engine.Bus, alerts *engine.AlertEngine, cfg *config.Store, log *slog.Logger) *Manager {
@@ -46,10 +45,9 @@ func NewManager(db *storage.DB, bus *engine.Bus, alerts *engine.AlertEngine, cfg
 	return &Manager{
 		DB: db, Bus: bus, Alerts: alerts, Cfg: cfg, Log: log,
 		Interfaces: NewInterfaceCollector(),
-		Devices:    &DeviceCollector{ResolveHostnames: c.Devices.ResolveHostnames},
+		Devices:    NewDeviceCollector(),
 		Latency:    NewLatencyCollector(c.Checks.PingMode),
 		DNS:        NewDNSCollector(),
-		Conns:      NewConnectionCollector(),
 		Memory:     NewMemoryCollector(),
 		Load:       NewLoadCollector(),
 		ProcMem:    NewProcessMemoryCollector(),
@@ -73,7 +71,7 @@ func (m *Manager) Gateway() string {
 
 func (m *Manager) PingMode() string { return m.Latency.Mode }
 
-// RunNetworkCycle handles interfaces + connections (main interval).
+// RunNetworkCycle handles interface counters and rates (main interval).
 func (m *Manager) RunNetworkCycle(ctx context.Context) {
 	cfg := m.Cfg.Get()
 	sample, err := m.Interfaces.Collect(cfg.Checks.PrimaryInterfaceOverride)
@@ -108,10 +106,13 @@ func (m *Manager) RunNetworkCycle(ctx context.Context) {
 			Failing:  iface.State == "down",
 		})
 	}
+	// Rebuilt rather than updated in place: an interface that goes away
+	// should stop being tracked instead of lingering in the map forever.
+	drops := make(map[string]uint64, len(sample.Metrics))
 	for _, met := range sample.Metrics {
 		total := met.RxDropped + met.TxDropped
 		prev, seen := m.prevDrops[met.Name]
-		m.prevDrops[met.Name] = total
+		drops[met.Name] = total
 		if !seen {
 			continue
 		}
@@ -123,15 +124,8 @@ func (m *Manager) RunNetworkCycle(ctx context.Context) {
 			Failing:  total > prev,
 		})
 	}
+	m.prevDrops = drops
 	m.checkTrafficSpike(ctx, sample)
-
-	if cfg.Collection.EnableConnectionCollection {
-		if conns, err := m.Conns.Collect(); err == nil {
-			if err := m.DB.InsertConnections(ctx, conns); err != nil {
-				m.Log.Warn("persist connections failed", "error", err)
-			}
-		}
-	}
 }
 
 func (m *Manager) checkTrafficSpike(ctx context.Context, sample *InterfaceSample) {
@@ -254,7 +248,7 @@ func (m *Manager) observeLoss(ctx context.Context, check models.LatencyCheck, th
 
 // RunDiscoveryCycle handles `ip neigh` device discovery (main interval).
 func (m *Manager) RunDiscoveryCycle(ctx context.Context) {
-	devices, err := m.Devices.Collect(ctx)
+	devices, err := m.Devices.Collect(ctx, m.Cfg.Get().Devices.ResolveHostnames)
 	if err != nil {
 		m.Log.Warn("collector failed", "collector", "discovery", "error", err)
 		return

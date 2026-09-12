@@ -71,17 +71,6 @@ type DNSCheck struct {
 	CollectedAt time.Time `json:"collected_at"`
 }
 
-// Connection is one row from /proc/net/tcp|udp (§7.5).
-type Connection struct {
-	Protocol    string    `json:"protocol"`
-	LocalIP     string    `json:"local_ip"`
-	LocalPort   int       `json:"local_port"`
-	RemoteIP    string    `json:"remote_ip"`
-	RemotePort  int       `json:"remote_port"`
-	State       string    `json:"state"`
-	CollectedAt time.Time `json:"collected_at"`
-}
-
 // MemoryMetrics is a /proc/meminfo sample (§7.6).
 type MemoryMetrics struct {
 	MemTotal      uint64    `json:"mem_total_bytes"`
