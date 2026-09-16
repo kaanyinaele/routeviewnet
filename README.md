@@ -5,8 +5,10 @@ problems in plain English. One daemon, one SQLite file, one dashboard at
 `http://localhost:4545`. No cloud, no account, no telemetry.
 
 **New to Linux or networking?** Start with the
-[User Guide](https://routeviewnet.com/user-guide.html). It explains every
-page of the app without jargon.
+[User Guide](docs/user-guide.md). It explains every page of the app without
+jargon. It is also installed to `/usr/share/doc/routeviewnet/user-guide.md`,
+so it is readable when the internet is the thing that is broken. A web copy
+lives at [routeviewnet.com/user-guide.html](https://routeviewnet.com/user-guide.html).
 
 Built to spec **v1.2**. The `§` references throughout the source point at
 that internal build spec, which is not distributed with the repository.
@@ -25,6 +27,11 @@ that internal build spec, which is not distributed with the repository.
   deduplicated non-flapping alerts (debounce + hysteresis), and a rule-based
   troubleshooting page ("your gateway is fine, DNS is slow; check your
   resolver").
+- **Alerts that reach you**: desktop notifications while the dashboard is
+  open, and an outbound webhook (`alerts.webhook_url`) for when it is not.
+  Settings has a test button that fires both. Note that browsers only allow
+  notifications on HTTPS or `localhost`, so over a LAN address the webhook is
+  the only channel.
 
 ## Quick start (development)
 
