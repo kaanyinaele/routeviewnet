@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, LatencyCheck, Range } from "../lib/api";
-import { Card, Empty, InfoTip, RangePicker, StatusPill, Td, Th } from "../components/ui";
+import { Card, InfoTip, PageState, RangePicker, StatusPill, Td, Th } from "../components/ui";
 import { Sparkline } from "../components/charts";
 
 // Fixed slot assignment: color follows the target, never its rank.
@@ -38,11 +38,11 @@ function friendlyTarget(target: string, gatewayIP?: string): string {
 
 export default function InternetPage() {
   const [range, setRange] = useState<Range>("1h");
-  const { data: latency } = useQuery({
+  const { data: latency, error: latencyError, isLoading: latencyLoading } = useQuery({
     queryKey: ["latencyChecks", range],
     queryFn: () => api.latencyChecks(range),
   });
-  const { data: dns } = useQuery({
+  const { data: dns, error: dnsError, isLoading: dnsLoading } = useQuery({
     queryKey: ["dnsChecks", range],
     queryFn: () => api.dnsChecks(range),
   });
@@ -155,7 +155,12 @@ export default function InternetPage() {
         </div>
       ) : (
         <Card>
-          <Empty text="No latency checks yet. Give the collector a minute." />
+          <PageState
+            error={latencyError}
+            isLoading={latencyLoading}
+            isEmpty
+            empty="No response-time checks yet. Give the collector a minute."
+          />
         </Card>
       )}
 
@@ -163,7 +168,12 @@ export default function InternetPage() {
         title="DNS checks (A and AAAA)"
         tip="Each row is one test of the internet's address book: how long it took to turn a website name into an address. A and AAAA are just the older and newer address formats; both are normal."
       >
-        {dns?.items?.length ? (
+        <PageState
+          error={dnsError}
+          isLoading={dnsLoading}
+          isEmpty={!dns?.items?.length}
+          empty="No address-book checks yet. Give the collector a minute."
+        >
           <div className="max-h-80 overflow-auto">
             <table className="w-full">
               <thead>
@@ -177,7 +187,7 @@ export default function InternetPage() {
                 </tr>
               </thead>
               <tbody>
-                {dns.items.slice(0, 40).map((c, i) => (
+                {dns?.items?.slice(0, 40).map((c, i) => (
                   <tr key={i} className="border-b" style={{ borderColor: "var(--border)" }}>
                     <Td>{c.domain}</Td>
                     <Td>{c.record_type}</Td>
@@ -192,9 +202,7 @@ export default function InternetPage() {
               </tbody>
             </table>
           </div>
-        ) : (
-          <Empty text="No DNS checks yet." />
-        )}
+        </PageState>
       </Card>
     </div>
   );

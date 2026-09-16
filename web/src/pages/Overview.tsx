@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api, EventRow, formatBytes, formatRate, timeAgo } from "../lib/api";
-import { Card, StatTile, StatusPill, Empty, InfoTip } from "../components/ui";
+import { Card, StatTile, StatusPill, Empty, InfoTip, PageState } from "../components/ui";
 import { Sparkline } from "../components/charts";
 
 const scoreColor: Record<string, string> = {
@@ -46,7 +46,9 @@ export default function OverviewPage() {
     queryFn: () => api.healthHistory("24h"),
   });
 
-  if (error) return <Empty text={`Could not reach the daemon: ${String(error)}`} />;
+  // Was `Could not reach the daemon: ${String(error)}`, which rendered
+  // "TypeError: Failed to fetch" at the user and used the word "daemon".
+  if (error) return <PageState error={error} />;
   if (!o) return <Empty text="Loading…" />;
 
   const score = o.health;
