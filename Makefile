@@ -28,8 +28,11 @@ BACKUP  ?= /var/backups/routeviewnet/routeviewnetd.packaged
 
 all: web build gui
 
+# npm ci, not npm install: install re-resolves and rewrites package-lock.json
+# on every build, so the local tree drifted from the one CI builds (which also
+# runs npm ci). ci installs exactly what the lockfile says, or fails.
 web:
-	cd web && npm install && npm run build
+	cd web && npm ci && npm run build
 	rm -rf internal/web/dist
 	cp -r web/dist internal/web/dist
 
