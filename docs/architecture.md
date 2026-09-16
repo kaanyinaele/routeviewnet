@@ -55,6 +55,24 @@ drops its counters entirely — the keys are `rule + source`, and `source` for
 `new_device` is an ip/mac pair, so keeping them would mean one entry per
 address a DHCP lease ever hands out.
 
+Link rules (`interface_down`, `dropped_packets_increasing`) watch only the
+interface the machine depends on: the current primary, or the last primary
+seen when the default route has just disappeared. Other interfaces are still
+observed, as healthy, so an alert for one resolves normally.
+
+**Stale-alert sweep.** Resolution needs a healthy observation, but a source
+can stop being observed altogether — a router on a network the machine has
+left, an unplugged USB adapter, a device on another network, a disabled
+collector. A once-a-minute sweep resolves any open alert whose `updated_at`
+(refreshed on every failing observation) is older than `staleAfter`, logging
+`reason="source no longer observed"`. `staleAfter` is `max(15m, 5 × the
+longest alert-raising interval)` — above `new_device`'s 10-minute freshness
+window, and scaled so a slowly-checked but still-failing source is never
+swept. After startup, or a wall-clock gap that means the machine was asleep,
+the sweep waits `max(1m, 2 × that interval)` first, so still-failing sources
+are re-observed before anything is judged stale. Gaps use the wall clock:
+Go's monotonic clock does not advance during suspend.
+
 ## Alert delivery
 
 Two channels with different failure modes, so neither is a substitute for
