@@ -1,4 +1,4 @@
-import { NavLink, Route, Routes, useLocation } from "react-router-dom";
+import { NavLink, Route, Routes, useLocation } from "react-router";
 import { useLive } from "./lib/useLive";
 import OverviewPage from "./pages/Overview";
 import TrafficPage from "./pages/Traffic";
