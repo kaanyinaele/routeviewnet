@@ -86,6 +86,14 @@ func run(configPath string) error {
 	}
 
 	bus := engine.NewBus()
+	// Outbound alert delivery. Reads the URL and timeout from the store per
+	// delivery, so changing them on the Settings page applies to the next
+	// alert without a restart.
+	notifier := engine.NewNotifier(bus, log,
+		func() string { return store.Get().Alerts.WebhookURL },
+		func() time.Duration {
+			return time.Duration(store.Get().Alerts.WebhookTimeoutSeconds) * time.Second
+		})
 	alerts := engine.NewAlertEngine(db, bus, log)
 	alerts.TriggerN = func() int { return store.Get().Alerts.TriggerDebounceChecks }
 	alerts.ResolveM = func() int { return store.Get().Alerts.ResolveDebounceChecks }
@@ -105,6 +113,11 @@ func run(configPath string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
+
+	notifier.Start(ctx)
+	if url := store.Get().Alerts.WebhookURL; url != "" {
+		log.Info("alert webhook enabled", "url", url)
+	}
 
 	// Startup retention pass, then hourly via the scheduler (§9.3).
 	if err := db.Cleanup(ctx, store.Get().Storage.RetentionDays); err != nil {
@@ -142,6 +155,7 @@ func run(configPath string) error {
 	case err := <-errCh:
 		stop()
 		sched.Wait()
+		notifier.Wait()
 		return err
 	case <-ctx.Done():
 	}
@@ -154,6 +168,9 @@ func run(configPath string) error {
 		log.Warn("http shutdown incomplete", "error", err)
 	}
 	sched.Wait()
+	// After the collectors stop, so any alert their last cycle raised is
+	// still delivered.
+	notifier.Wait()
 	log.Info("shutdown complete")
 	return nil
 }

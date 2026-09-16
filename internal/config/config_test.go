@@ -221,3 +221,41 @@ func TestHotReloadableSettingsDoNotRequireRestart(t *testing.T) {
 		t.Error("hot-reloadable settings must be live immediately")
 	}
 }
+
+// The daemon POSTs to whatever alerts.webhook_url names, so a typo should be
+// rejected at save time rather than discovered as a silent non-delivery the
+// first time something actually breaks.
+func TestWebhookURLValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		url  string
+		ok   bool
+	}{
+		{"empty disables delivery", "", true},
+		{"https", "https://example.com/hooks/rvn", true},
+		{"http", "http://192.168.1.9:9000/hook", true},
+		{"no scheme", "example.com/hook", false},
+		{"wrong scheme", "file:///etc/passwd", false},
+		{"scheme without host", "https://", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := Default()
+			cfg.Alerts.WebhookURL = tc.url
+			err := cfg.Validate()
+			if tc.ok && err != nil {
+				t.Errorf("Validate(%q) = %v, want nil", tc.url, err)
+			}
+			if !tc.ok && err == nil {
+				t.Errorf("Validate(%q) = nil, want an error", tc.url)
+			}
+		})
+	}
+}
+
+func TestWebhookTimeoutMustBePositive(t *testing.T) {
+	cfg := Default()
+	cfg.Alerts.WebhookTimeoutSeconds = 0
+	if err := cfg.Validate(); err == nil {
+		t.Error("a zero webhook timeout must be rejected")
+	}
+}

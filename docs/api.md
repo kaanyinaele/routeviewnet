@@ -21,6 +21,7 @@ Base: `http://127.0.0.1:4545/api/v1`. JSON responses, error envelope
 | `GET /events?limit=&cursor=` | event log |
 | `GET /troubleshoot` | current rule-based diagnosis |
 | `GET /settings` / `POST /settings` | full config document; POST returns `restart_required` |
+| `POST /notifications/test` | publish a synthetic alert to every delivery channel |
 | `GET /system/memory` · `/system/memory/history?range=` | RAM/swap |
 | `GET /system/load` | load average + core count |
 | `GET /system/processes/memory` | latest top-10 scan |
@@ -64,3 +65,42 @@ Frame: `{"type", "timestamp", "payload"}`. Types:
 Max 20 concurrent clients (configurable); over the cap new connections are
 rejected with a clear reason. Foreign `Origin` headers are rejected 403.
 Non-browser clients (no Origin) may connect.
+
+## Alert delivery
+
+Two channels, for two different situations.
+
+**Browser notifications** are rendered by the dashboard from the
+`alert.created` / `alert.resolved` frames it already receives, so they only
+fire while a tab is open. They also need a secure context: browsers expose the
+Notifications API on HTTPS and on `localhost`, but *not* on a plain-HTTP LAN
+address, so the toggle is unavailable when the dashboard is reached over
+`server.host: 0.0.0.0`. The Settings page says so rather than offering a
+switch that does nothing.
+
+**The webhook** (`alerts.webhook_url`) is the channel that works with no
+dashboard open. Every alert transition is POSTed as:
+
+```json
+{
+  "event": "alert.created",
+  "timestamp": "2026-09-12T18:04:11Z",
+  "host": "nas",
+  "alert": { "id": 41, "rule_key": "interface_down", "severity": "critical",
+             "title": "...", "message": "...", "source": "eth0",
+             "status": "open", "occurrence_count": 1,
+             "created_at": "...", "updated_at": "...", "resolved_at": null }
+}
+```
+
+`host` is included because several machines can report to one endpoint and
+the alert itself does not say where it came from. Delivery is retried three
+times with exponential backoff; a non-2xx response counts as a failure. Any
+status outside 200–299 is retried, the body is ignored, and a final failure
+is logged rather than queued for later — this is a notification channel, not
+a message queue.
+
+`POST /notifications/test` publishes a synthetic alert down both channels at
+once. It carries `id: 0` and `rule_key: "test_notification"` — which is how a
+receiver distinguishes it — and is never written to the alerts table, so
+testing delivery does not pollute alert history or move the health score.
