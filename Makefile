@@ -24,7 +24,7 @@ VERSION ?= 1.0.0
 # Where the packaged binary is kept so a bad local build is always reversible.
 BACKUP  ?= /var/backups/routeviewnet/routeviewnetd.packaged
 
-.PHONY: all build web gui test fmt fmt-check deb run clean install-local rollback-local
+.PHONY: all build web gui test fmt fmt-check deb run clean install-local rollback-local require-go
 
 all: web build gui
 
@@ -36,10 +36,20 @@ web:
 	rm -rf internal/web/dist
 	cp -r web/dist internal/web/dist
 
-build:
+# Without this, a missing toolchain surfaces as "/bin/sh: 1: go: not found"
+# and "Error 127", which says nothing about what to do next. Honours GO=, so
+# pointing at a toolchain outside PATH still works.
+require-go:
+	@command -v $(GO) >/dev/null 2>&1 || { \
+	  echo "Go is not installed (it is needed to build the daemon)."; \
+	  echo "  On Ubuntu/Debian:  sudo apt install golang-go"; \
+	  echo "  Then re-run:       make $(MAKECMDGOALS)"; \
+	  exit 1; }
+
+build: require-go
 	$(GO) build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o routeviewnetd ./cmd/routeviewnetd
 
-gui:
+gui: require-go
 	$(GO) build -trimpath -ldflags "-s -w" -o routeviewnet-gui ./cmd/routeviewnet-gui
 
 test: fmt-check
