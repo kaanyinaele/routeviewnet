@@ -53,6 +53,10 @@ alerts:
   load_avg_multiplier_warning: 2.0
   trigger_debounce_checks: 2
   resolve_debounce_checks: 2
+  # POSTed a JSON body when an alert opens or resolves. Empty disables it.
+  # This is the only alert channel that works when the dashboard is closed.
+  webhook_url: ""
+  webhook_timeout_seconds: 5
 
 privacy:
   telemetry: false

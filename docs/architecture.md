@@ -55,6 +55,27 @@ drops its counters entirely — the keys are `rule + source`, and `source` for
 `new_device` is an ip/mac pair, so keeping them would mean one entry per
 address a DHCP lease ever hands out.
 
+## Alert delivery
+
+Two channels with different failure modes, so neither is a substitute for
+the other. Browser notifications are drawn by the dashboard from the
+WebSocket frames it already receives — free to add, but they only fire while
+a tab is open, and browsers gate the Notifications API on a secure context
+(HTTPS or `localhost`), which a plain-HTTP LAN address is not. The webhook
+runs in the daemon and is the only channel that works with nothing open.
+
+The `Notifier` subscribes to the bus like any other client but never does
+network I/O on the subscription goroutine. The bus drops events for
+subscribers whose buffer is full, and that same buffer carries the
+high-frequency metric events, so posting inline would let an endpoint that
+takes a few seconds to answer crowd out the one alert that mattered. The
+reader drains into a queue of its own and a second goroutine posts; there is
+a test that fails under the inline arrangement.
+
+During shutdown queued alerts still get one attempt each (retries are
+skipped), so a graceful stop stays bounded but does not swallow whatever the
+last collection cycle found.
+
 ## Health score (§6)
 
 Pure function of the open alerts: per-rule penalties, capped per category,
@@ -109,5 +130,5 @@ promised.
 ## Shutdown (§14.9)
 
 `SIGTERM`/`SIGINT` → collector loops stop, WebSocket clients get close
-`1001`, HTTP drains ≤10s, then exit. The systemd unit sets
-`TimeoutStopSec=15`.
+`1001`, HTTP drains ≤10s, queued alert webhooks get a last attempt, then
+exit. The systemd unit sets `TimeoutStopSec=15`.

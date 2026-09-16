@@ -5,7 +5,10 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 
 	"gopkg.in/yaml.v3"
@@ -64,6 +67,14 @@ type Alerts struct {
 	LoadAvgMultiplierWarning  float64 `yaml:"load_avg_multiplier_warning" json:"load_avg_multiplier_warning"`
 	TriggerDebounceChecks     int     `yaml:"trigger_debounce_checks" json:"trigger_debounce_checks"`
 	ResolveDebounceChecks     int     `yaml:"resolve_debounce_checks" json:"resolve_debounce_checks"`
+
+	// WebhookURL receives a POST when an alert opens or resolves. Empty
+	// disables delivery. This is the only channel that works while nobody
+	// has the dashboard open, so it is the one that makes the alert engine
+	// useful rather than decorative.
+	WebhookURL string `yaml:"webhook_url" json:"webhook_url"`
+	// WebhookTimeoutSeconds bounds one delivery attempt.
+	WebhookTimeoutSeconds int `yaml:"webhook_timeout_seconds" json:"webhook_timeout_seconds"`
 }
 
 type Privacy struct {
@@ -137,6 +148,8 @@ func Default() Config {
 			LoadAvgMultiplierWarning:  2.0,
 			TriggerDebounceChecks:     2,
 			ResolveDebounceChecks:     2,
+			WebhookURL:                "",
+			WebhookTimeoutSeconds:     5,
 		},
 		Privacy: Privacy{Telemetry: false, StoreProcessCommand: false},
 		Devices: Devices{ResolveHostnames: true},
@@ -171,6 +184,18 @@ func (c *Config) Validate() error {
 	if c.Storage.RetentionDays < 1 {
 		return fmt.Errorf("storage.retention_days must be >= 1, got %d", c.Storage.RetentionDays)
 	}
+	// storage.path is concatenated into a SQLite URI DSN
+	// ("file:" + path + "?_pragma=..."), so a path carrying its own query or
+	// fragment would append pragmas of its own choosing. Requiring an absolute
+	// path with no URI punctuation keeps the DSN meaning what it says.
+	if strings.ContainsAny(c.Storage.Path, "?#\n\r") {
+		return fmt.Errorf("storage.path must not contain '?', '#' or newlines, got %q", c.Storage.Path)
+	}
+	if c.Storage.Path != "" && !filepath.IsAbs(c.Storage.Path) && !strings.HasPrefix(c.Storage.Path, "tmp/") {
+		// Relative paths are allowed only for the in-repo dev config that
+		// `make run` writes; anything installed should name an absolute path.
+		return fmt.Errorf("storage.path must be absolute, got %q", c.Storage.Path)
+	}
 	if c.Storage.Path == "" {
 		return fmt.Errorf("storage.path must not be empty")
 	}
@@ -197,6 +222,23 @@ func (c *Config) Validate() error {
 	}
 	if c.Alerts.TriggerDebounceChecks < 1 || c.Alerts.ResolveDebounceChecks < 1 {
 		return fmt.Errorf("alerts.trigger_debounce_checks and resolve_debounce_checks must be >= 1")
+	}
+	if c.Alerts.WebhookURL != "" {
+		u, err := url.Parse(c.Alerts.WebhookURL)
+		switch {
+		case err != nil:
+			return fmt.Errorf("alerts.webhook_url is not a valid URL: %w", err)
+		case u.Scheme != "http" && u.Scheme != "https":
+			// The daemon POSTs to whatever this names. Restricting the
+			// scheme keeps a typo from turning into a file:// or unix://
+			// request against the machine being monitored.
+			return fmt.Errorf("alerts.webhook_url must be http or https, got %q", u.Scheme)
+		case u.Host == "":
+			return fmt.Errorf("alerts.webhook_url must include a host, got %q", c.Alerts.WebhookURL)
+		}
+	}
+	if c.Alerts.WebhookTimeoutSeconds < 1 {
+		return fmt.Errorf("alerts.webhook_timeout_seconds must be >= 1, got %d", c.Alerts.WebhookTimeoutSeconds)
 	}
 	if c.Server.MaxHistoryPoints < 10 {
 		return fmt.Errorf("server.max_history_points must be >= 10, got %d", c.Server.MaxHistoryPoints)
