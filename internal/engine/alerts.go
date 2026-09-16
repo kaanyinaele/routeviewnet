@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"time"
 
 	"routeviewnet/internal/models"
 	"routeviewnet/internal/storage"
@@ -12,19 +13,19 @@ import (
 // Rule keys (stable identifiers, §9.2.10). The health-score penalty table
 // (§6.2) is keyed off these.
 const (
-	RuleNewDevice          = "new_device"
-	RuleGatewayUnreachable = "gateway_unreachable"
+	RuleNewDevice           = "new_device"
+	RuleGatewayUnreachable  = "gateway_unreachable"
 	RuleInternetUnreachable = "internet_unreachable"
-	RuleHighPacketLoss     = "high_packet_loss"
-	RuleDNSFailure         = "dns_failure"
-	RuleHighDNSLatency     = "high_dns_latency"
-	RuleInterfaceDown      = "interface_down"
-	RuleDroppedIncreasing  = "dropped_packets_increasing"
-	RuleTrafficSpike       = "traffic_spike"
-	RuleHighMemory         = "high_memory_usage"
-	RuleHighSwap           = "high_swap_usage"
-	RuleDaemonMemoryHigh   = "daemon_memory_high"
-	RuleHighLoad           = "high_system_load"
+	RuleHighPacketLoss      = "high_packet_loss"
+	RuleDNSFailure          = "dns_failure"
+	RuleHighDNSLatency      = "high_dns_latency"
+	RuleInterfaceDown       = "interface_down"
+	RuleDroppedIncreasing   = "dropped_packets_increasing"
+	RuleTrafficSpike        = "traffic_spike"
+	RuleHighMemory          = "high_memory_usage"
+	RuleHighSwap            = "high_swap_usage"
+	RuleDaemonMemoryHigh    = "daemon_memory_high"
+	RuleHighLoad            = "high_system_load"
 )
 
 // immediateRules skip trigger debounce (§8.4.1 exception).
@@ -83,14 +84,25 @@ func (e *AlertEngine) Observe(ctx context.Context, obs Observation) {
 
 	e.mu.Lock()
 	k := key(obs.RuleKey, obs.Source)
-	if obs.Failing {
+	var fails, oks int
+	switch {
+	case obs.Failing:
+		delete(e.healthy, k)
 		e.failures[k]++
-		e.healthy[k] = 0
-	} else {
+		fails = e.failures[k]
+	case open != nil:
+		delete(e.failures, k)
 		e.healthy[k]++
-		e.failures[k] = 0
+		oks = e.healthy[k]
+	default:
+		// Healthy with nothing open: there is no debounce in progress, so
+		// there is no counter worth keeping. Dropping it bounds these maps,
+		// which are keyed per rule+source — and "source" for the new-device
+		// rule is an ip/mac pair, one more entry for every address a DHCP
+		// lease ever hands out.
+		delete(e.failures, k)
+		delete(e.healthy, k)
 	}
-	fails, oks := e.failures[k], e.healthy[k]
 	e.mu.Unlock()
 
 	switch {
@@ -127,16 +139,69 @@ func (e *AlertEngine) Observe(ctx context.Context, obs Observation) {
 		if oks < e.ResolveM() {
 			return // resolve debounce (§8.4.3)
 		}
-		if err := e.db.ResolveAlert(ctx, open.ID); err != nil {
-			e.log.Warn("alert resolve failed", "rule", obs.RuleKey, "error", err)
-			return
-		}
-		e.log.Info("alert resolved", "rule", obs.RuleKey, "source", obs.Source)
-		open.Status = models.StatusResolved
-		_ = e.db.InsertEvent(ctx, "alert.resolved", open.Severity, MarshalPayload(open))
-		e.bus.Publish("alert.resolved", open)
-		if e.OnChange != nil {
+		if e.resolve(ctx, open) && e.OnChange != nil {
 			e.OnChange(ctx)
 		}
 	}
+}
+
+// resolve closes one open alert and announces it. It reports whether the
+// alert was actually resolved, so callers can decide when to recompute.
+func (e *AlertEngine) resolve(ctx context.Context, open *models.Alert, logArgs ...any) bool {
+	if err := e.db.ResolveAlert(ctx, open.ID); err != nil {
+		e.log.Warn("alert resolve failed", "rule", open.RuleKey, "error", err)
+		return false
+	}
+	e.log.Info("alert resolved", append([]any{"rule", open.RuleKey, "source", open.Source}, logArgs...)...)
+	open.Status = models.StatusResolved
+	_ = e.db.InsertEvent(ctx, "alert.resolved", open.Severity, MarshalPayload(open))
+	e.bus.Publish("alert.resolved", open)
+	return true
+}
+
+// SweepStale resolves open alerts that nothing has re-observed since cutoff.
+//
+// An alert only resolves when its source is observed healthy — but a source
+// can simply stop being observed. Leave a network and its router is never
+// pinged again; unplug a USB adapter and it drops out of the interface list;
+// devices on a network you left are never rescanned; disable a collector and
+// its checks stop. Before this, every such alert stayed open forever: a
+// laptop that had moved between networks sat at "critical" for weeks with its
+// connection working fine.
+//
+// A genuinely failing source is re-observed every cycle, and each of those
+// observations refreshes updated_at, so an alert untouched since cutoff has no
+// evidence it is still failing. Resolving it is the honest state. If the
+// source comes back and fails again, the normal debounce reopens it.
+//
+// updated_at is stored to the second, so the cutoff is truncated to the
+// second: an alert touched during the cutoff's own second is kept rather than
+// swept on a rounding technicality.
+func (e *AlertEngine) SweepStale(ctx context.Context, cutoff time.Time) (int, error) {
+	open, err := e.db.OpenAlerts(ctx)
+	if err != nil {
+		return 0, err
+	}
+	cutoff = cutoff.Truncate(time.Second)
+	swept := 0
+	for i := range open {
+		a := &open[i]
+		if !a.UpdatedAt.Before(cutoff) {
+			continue
+		}
+		if !e.resolve(ctx, a, "reason", "source no longer observed",
+			"last_observed", a.UpdatedAt.Format(time.RFC3339)) {
+			continue
+		}
+		e.mu.Lock()
+		k := key(a.RuleKey, a.Source)
+		delete(e.failures, k)
+		delete(e.healthy, k)
+		e.mu.Unlock()
+		swept++
+	}
+	if swept > 0 && e.OnChange != nil {
+		e.OnChange(ctx)
+	}
+	return swept, nil
 }

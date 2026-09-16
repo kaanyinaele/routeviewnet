@@ -11,6 +11,7 @@ import (
 
 	"routeviewnet/internal/collector"
 	"routeviewnet/internal/config"
+	"routeviewnet/internal/engine"
 	"routeviewnet/internal/storage"
 )
 
@@ -80,12 +81,28 @@ func (s *Scheduler) Start(ctx context.Context) {
 		func() bool { return cfg().Collection.EnableLoadMonitoring }, s.Mgr.RunLoadCycle)
 
 	s.loop(ctx, "process_memory",
-		func() time.Duration { return time.Duration(cfg().Collection.ProcessMemoryIntervalSeconds) * time.Second },
+		func() time.Duration {
+			return time.Duration(cfg().Collection.ProcessMemoryIntervalSeconds) * time.Second
+		},
 		func() bool { return cfg().Collection.EnableProcessMemoryMonitoring }, s.Mgr.RunProcessMemoryCycle)
 
 	s.loop(ctx, "app_traffic",
 		func() time.Duration { return time.Duration(cfg().Collection.AppTrafficIntervalSeconds) * time.Second },
 		func() bool { return cfg().Collection.EnableAppTrafficMonitoring }, s.Mgr.RunAppTrafficCycle)
+
+	// Resolve alerts whose source has stopped being observed at all — a router
+	// on a network you left, an unplugged adapter — which would otherwise
+	// stay open forever. Timing scales with the slowest alert-raising
+	// collector so a slowly-checked but still-failing source is never swept.
+	sweeper := engine.NewStaleSweeper(s.Mgr.Alerts, s.Log)
+	s.loop(ctx, "alert_sweep",
+		func() time.Duration { return engine.SweepEvery },
+		always, func(ctx context.Context) {
+			c := cfg().Collection
+			longest := time.Duration(max(c.IntervalSeconds, c.MemoryIntervalSeconds, c.LoadIntervalSeconds)) * time.Second
+			staleAfter, grace := engine.SweepTiming(longest)
+			sweeper.Tick(ctx, engine.SweepEvery, staleAfter, grace)
+		})
 
 	s.loop(ctx, "retention",
 		func() time.Duration { return time.Hour },

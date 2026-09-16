@@ -21,7 +21,6 @@ collection:
   enable_device_discovery: true
   enable_dns_checks: true
   enable_latency_checks: true
-  enable_connection_collection: true
   enable_memory_monitoring: true
   enable_process_memory_monitoring: true
   enable_load_monitoring: true
@@ -54,6 +53,10 @@ alerts:
   load_avg_multiplier_warning: 2.0
   trigger_debounce_checks: 2
   resolve_debounce_checks: 2
+  # POSTed a JSON body when an alert opens or resolves. Empty disables it.
+  # This is the only alert channel that works when the dashboard is closed.
+  webhook_url: ""
+  webhook_timeout_seconds: 5
 
 privacy:
   telemetry: false

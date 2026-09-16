@@ -5,7 +5,10 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 
 	"gopkg.in/yaml.v3"
@@ -34,7 +37,6 @@ type Collection struct {
 	EnableDeviceDiscovery         bool `yaml:"enable_device_discovery" json:"enable_device_discovery"`
 	EnableDNSChecks               bool `yaml:"enable_dns_checks" json:"enable_dns_checks"`
 	EnableLatencyChecks           bool `yaml:"enable_latency_checks" json:"enable_latency_checks"`
-	EnableConnectionCollection    bool `yaml:"enable_connection_collection" json:"enable_connection_collection"`
 	EnableMemoryMonitoring        bool `yaml:"enable_memory_monitoring" json:"enable_memory_monitoring"`
 	EnableProcessMemoryMonitoring bool `yaml:"enable_process_memory_monitoring" json:"enable_process_memory_monitoring"`
 	EnableLoadMonitoring          bool `yaml:"enable_load_monitoring" json:"enable_load_monitoring"`
@@ -65,6 +67,14 @@ type Alerts struct {
 	LoadAvgMultiplierWarning  float64 `yaml:"load_avg_multiplier_warning" json:"load_avg_multiplier_warning"`
 	TriggerDebounceChecks     int     `yaml:"trigger_debounce_checks" json:"trigger_debounce_checks"`
 	ResolveDebounceChecks     int     `yaml:"resolve_debounce_checks" json:"resolve_debounce_checks"`
+
+	// WebhookURL receives a POST when an alert opens or resolves. Empty
+	// disables delivery. This is the only channel that works while nobody
+	// has the dashboard open, so it is the one that makes the alert engine
+	// useful rather than decorative.
+	WebhookURL string `yaml:"webhook_url" json:"webhook_url"`
+	// WebhookTimeoutSeconds bounds one delivery attempt.
+	WebhookTimeoutSeconds int `yaml:"webhook_timeout_seconds" json:"webhook_timeout_seconds"`
 }
 
 type Privacy struct {
@@ -91,9 +101,13 @@ type Config struct {
 func Default() Config {
 	return Config{
 		Server: Server{
-			Host:                "127.0.0.1",
-			Port:                4545,
-			CORSAllowedOrigins:  nil,
+			Host: "127.0.0.1",
+			Port: 4545,
+			// Empty, not nil: these serialize into GET /settings, and the
+			// dashboard treats list settings as arrays. A nil slice would
+			// marshal to null and break editing them.
+			CORSAllowedOrigins:  []string{},
+			AllowedHosts:        []string{},
 			MaxWebsocketClients: 20,
 			MaxHistoryPoints:    500,
 		},
@@ -107,7 +121,6 @@ func Default() Config {
 			EnableDeviceDiscovery:         true,
 			EnableDNSChecks:               true,
 			EnableLatencyChecks:           true,
-			EnableConnectionCollection:    true,
 			EnableMemoryMonitoring:        true,
 			EnableProcessMemoryMonitoring: true,
 			EnableLoadMonitoring:          true,
@@ -135,6 +148,8 @@ func Default() Config {
 			LoadAvgMultiplierWarning:  2.0,
 			TriggerDebounceChecks:     2,
 			ResolveDebounceChecks:     2,
+			WebhookURL:                "",
+			WebhookTimeoutSeconds:     5,
 		},
 		Privacy: Privacy{Telemetry: false, StoreProcessCommand: false},
 		Devices: Devices{ResolveHostnames: true},
@@ -169,6 +184,18 @@ func (c *Config) Validate() error {
 	if c.Storage.RetentionDays < 1 {
 		return fmt.Errorf("storage.retention_days must be >= 1, got %d", c.Storage.RetentionDays)
 	}
+	// storage.path is concatenated into a SQLite URI DSN
+	// ("file:" + path + "?_pragma=..."), so a path carrying its own query or
+	// fragment would append pragmas of its own choosing. Requiring an absolute
+	// path with no URI punctuation keeps the DSN meaning what it says.
+	if strings.ContainsAny(c.Storage.Path, "?#\n\r") {
+		return fmt.Errorf("storage.path must not contain '?', '#' or newlines, got %q", c.Storage.Path)
+	}
+	if c.Storage.Path != "" && !filepath.IsAbs(c.Storage.Path) && !strings.HasPrefix(c.Storage.Path, "tmp/") {
+		// Relative paths are allowed only for the in-repo dev config that
+		// `make run` writes; anything installed should name an absolute path.
+		return fmt.Errorf("storage.path must be absolute, got %q", c.Storage.Path)
+	}
 	if c.Storage.Path == "" {
 		return fmt.Errorf("storage.path must not be empty")
 	}
@@ -196,6 +223,23 @@ func (c *Config) Validate() error {
 	if c.Alerts.TriggerDebounceChecks < 1 || c.Alerts.ResolveDebounceChecks < 1 {
 		return fmt.Errorf("alerts.trigger_debounce_checks and resolve_debounce_checks must be >= 1")
 	}
+	if c.Alerts.WebhookURL != "" {
+		u, err := url.Parse(c.Alerts.WebhookURL)
+		switch {
+		case err != nil:
+			return fmt.Errorf("alerts.webhook_url is not a valid URL: %w", err)
+		case u.Scheme != "http" && u.Scheme != "https":
+			// The daemon POSTs to whatever this names. Restricting the
+			// scheme keeps a typo from turning into a file:// or unix://
+			// request against the machine being monitored.
+			return fmt.Errorf("alerts.webhook_url must be http or https, got %q", u.Scheme)
+		case u.Host == "":
+			return fmt.Errorf("alerts.webhook_url must include a host, got %q", c.Alerts.WebhookURL)
+		}
+	}
+	if c.Alerts.WebhookTimeoutSeconds < 1 {
+		return fmt.Errorf("alerts.webhook_timeout_seconds must be >= 1, got %d", c.Alerts.WebhookTimeoutSeconds)
+	}
 	if c.Server.MaxHistoryPoints < 10 {
 		return fmt.Errorf("server.max_history_points must be >= 10, got %d", c.Server.MaxHistoryPoints)
 	}
@@ -203,51 +247,80 @@ func (c *Config) Validate() error {
 }
 
 // Store is the mutex-guarded live config (§12.4). Hot-reloadable settings
-// are swapped in place; restart-required settings only change on restart.
+// are swapped in place; restart-required settings are recorded as desired
+// but only take effect on the next start.
 type Store struct {
-	mu  sync.RWMutex
+	mu sync.RWMutex
+	// cfg is what is actually in effect right now.
 	cfg Config
+	// desired is cfg plus any restart-only changes that are not in effect
+	// yet. It is what gets persisted and what the Settings page edits, so a
+	// restart actually delivers what the user asked for.
+	desired Config
 }
 
-func NewStore(cfg Config) *Store { return &Store{cfg: cfg} }
+func NewStore(cfg Config) *Store { return &Store{cfg: cfg, desired: cfg} }
 
+// Get returns the configuration in effect right now. Collectors, engines,
+// and middleware read this every cycle/request.
 func (s *Store) Get() Config {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.cfg
 }
 
-// restartRequired reports whether applying next over cur changes any
-// restart-only setting (§12.4).
-func restartRequired(cur, next Config) bool {
-	if cur.Server.Host != next.Server.Host || cur.Server.Port != next.Server.Port {
-		return true
-	}
-	if cur.Storage.Path != next.Storage.Path {
-		return true
-	}
-	if fmt.Sprint(cur.Server.CORSAllowedOrigins) != fmt.Sprint(next.Server.CORSAllowedOrigins) {
-		return true
-	}
-	if cur.Checks.PrimaryInterfaceOverride != next.Checks.PrimaryInterfaceOverride {
-		return true
-	}
-	return false
+// Desired returns the configuration the user has asked for, including
+// restart-only changes that have not taken effect yet. This is what the
+// API persists and serves, so restart-required settings are not lost.
+func (s *Store) Desired() Config {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.desired
 }
 
-// Apply validates and installs next, keeping restart-only fields at their
-// current values, and reports whether a restart is needed for full effect.
+// restartOnly lists the settings a running daemon cannot change: the
+// listener address is already bound, the database is already open, and the
+// ping mode was resolved against the process's privileges at startup.
+// Everything else is re-read from the store each cycle and hot-reloads.
+func restartOnly(cur, next Config) bool {
+	return cur.Server.Host != next.Server.Host ||
+		cur.Server.Port != next.Server.Port ||
+		cur.Storage.Path != next.Storage.Path ||
+		cur.Checks.PingMode != next.Checks.PingMode
+}
+
+// Apply validates next and installs it as the live config, keeping
+// restart-only fields at their running values. The full requested document
+// is retained (see Desired) so persisting it survives a restart. It reports
+// whether a restart is needed for the change to take full effect.
 func (s *Store) Apply(next Config) (restart bool, err error) {
 	if err := next.Validate(); err != nil {
 		return false, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	restart = restartRequired(s.cfg, next)
-	// Restart-required fields keep their running values until restart.
+	restart = restartOnly(s.cfg, next)
+	s.desired = next
+	// Restart-only fields keep their running values in the live config;
+	// s.desired still carries the requested ones.
 	next.Server.Host = s.cfg.Server.Host
 	next.Server.Port = s.cfg.Server.Port
 	next.Storage.Path = s.cfg.Storage.Path
+	next.Checks.PingMode = s.cfg.Checks.PingMode
 	s.cfg = next
 	return restart, nil
+}
+
+// Adopt installs next wholesale, restart-only fields included. It is the
+// startup path: nothing is bound or open yet, so a stored override can take
+// full effect. Callers must use it before the listener and DB are live.
+func (s *Store) Adopt(next Config) error {
+	if err := next.Validate(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cfg = next
+	s.desired = next
+	return nil
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { showAlertNotification } from "./notify";
 
 // Maps WebSocket event types (§10.3) to the query keys they invalidate.
 const invalidations: Record<string, string[][]> = {
@@ -40,6 +41,12 @@ export function useLive(): boolean {
       ws.onmessage = (msg) => {
         try {
           const ev = JSON.parse(msg.data);
+          // Alert transitions are the one event worth telling the user about
+          // directly; everything else only refreshes a query. Notify before
+          // invalidating so a slow refetch cannot delay the notification.
+          if (ev.type === "alert.created" || ev.type === "alert.resolved") {
+            if (ev.payload) showAlertNotification(ev.type, ev.payload);
+          }
           const keys = invalidations[ev.type];
           if (!keys) return;
           const now = Date.now();

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, formatBytes, Range } from "../lib/api";
-import { Card, Empty, RangePicker, StatTile, Td, Th } from "../components/ui";
+import { Card, PageState, RangePicker, StatTile, Td, Th } from "../components/ui";
 import { TimeSeriesChart } from "../components/charts";
 
 export default function SystemPage() {
@@ -9,8 +9,11 @@ export default function SystemPage() {
   const { data: mem } = useQuery({ queryKey: ["memory"], queryFn: api.memory });
   const { data: load } = useQuery({ queryKey: ["load"], queryFn: api.load });
   const { data: daemon } = useQuery({ queryKey: ["daemonMemory"], queryFn: api.daemonMemory });
-  const { data: procs } = useQuery({ queryKey: ["processes"], queryFn: api.processes });
-  const { data: hist } = useQuery({
+  const { data: procs, error: procsError, isLoading: procsLoading } = useQuery({
+    queryKey: ["processes"],
+    queryFn: api.processes,
+  });
+  const { data: hist, error: histError, isLoading: histLoading } = useQuery({
     queryKey: ["memoryHistory", range],
     queryFn: () => api.memoryHistory(range),
   });
@@ -57,9 +60,14 @@ export default function SystemPage() {
         title="Memory & swap usage"
         tip="Memory and swap use over the selected time window. A line that climbs and never comes down can mean a program is slowly leaking memory."
       >
-        {hist?.points?.length ? (
+        <PageState
+          error={histError}
+          isLoading={histLoading}
+          isEmpty={!hist?.points?.length}
+          empty="No memory samples yet. Give the collector a minute."
+        >
           <TimeSeriesChart
-            data={hist.points}
+            data={hist?.points ?? []}
             yDomain={[0, 100]}
             format={(v) => `${v.toFixed(0)}%`}
             series={[
@@ -67,16 +75,19 @@ export default function SystemPage() {
               { key: "swap_usage_percent", name: "Swap", color: "var(--series-2)" },
             ]}
           />
-        ) : (
-          <Empty text="No memory samples yet." />
-        )}
+        </PageState>
       </Card>
 
       <Card
         title="Top memory consumers"
         tip="The programs using the most memory right now, biggest first. If the computer feels slow, the culprit is usually near the top of this list."
       >
-        {procs?.items?.length ? (
+        <PageState
+          error={procsError}
+          isLoading={procsLoading}
+          isEmpty={!procs?.items?.length}
+          empty="No process scan yet (runs every 30s by default)."
+        >
           <table className="w-full">
             <thead>
               <tr className="border-b" style={{ borderColor: "var(--border)" }}>
@@ -87,7 +98,7 @@ export default function SystemPage() {
               </tr>
             </thead>
             <tbody>
-              {procs.items.map((p) => (
+              {procs?.items?.map((p) => (
                 <tr key={p.pid} className="border-b" style={{ borderColor: "var(--border)" }}>
                   <Td className="tabular">{p.pid}</Td>
                   <Td>{p.process_name}</Td>
@@ -97,9 +108,7 @@ export default function SystemPage() {
               ))}
             </tbody>
           </table>
-        ) : (
-          <Empty text="No process scan yet (runs every 30s by default)." />
-        )}
+        </PageState>
       </Card>
     </div>
   );

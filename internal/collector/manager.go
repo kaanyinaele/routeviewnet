@@ -27,16 +27,21 @@ type Manager struct {
 	Devices    *DeviceCollector
 	Latency    *LatencyCollector
 	DNS        *DNSCollector
-	Conns      *ConnectionCollector
 	Memory     *MemoryCollector
 	Load       *LoadCollector
 	ProcMem    *ProcessMemoryCollector
 	DaemonMem  *DaemonMemoryCollector
 	AppTraffic *AppTrafficCollector
 
-	mu          sync.RWMutex
-	primary     string
-	gateway     string
+	mu      sync.RWMutex
+	primary string
+	gateway string
+	// lastPrimary is the most recent non-empty primary interface. It is what
+	// link alerts watch when the primary goes blank, which is exactly what
+	// happens when the only cable is pulled: the kernel drops the default
+	// route with it, so "current primary" alone would stop watching the
+	// interface at the moment it fails.
+	lastPrimary string
 	prevDrops   map[string]uint64
 	memTotal    uint64
 }
@@ -46,10 +51,9 @@ func NewManager(db *storage.DB, bus *engine.Bus, alerts *engine.AlertEngine, cfg
 	return &Manager{
 		DB: db, Bus: bus, Alerts: alerts, Cfg: cfg, Log: log,
 		Interfaces: NewInterfaceCollector(),
-		Devices:    &DeviceCollector{ResolveHostnames: c.Devices.ResolveHostnames},
+		Devices:    NewDeviceCollector(),
 		Latency:    NewLatencyCollector(c.Checks.PingMode),
 		DNS:        NewDNSCollector(),
-		Conns:      NewConnectionCollector(),
 		Memory:     NewMemoryCollector(),
 		Load:       NewLoadCollector(),
 		ProcMem:    NewProcessMemoryCollector(),
@@ -73,7 +77,7 @@ func (m *Manager) Gateway() string {
 
 func (m *Manager) PingMode() string { return m.Latency.Mode }
 
-// RunNetworkCycle handles interfaces + connections (main interval).
+// RunNetworkCycle handles interface counters and rates (main interval).
 func (m *Manager) RunNetworkCycle(ctx context.Context) {
 	cfg := m.Cfg.Get()
 	sample, err := m.Interfaces.Collect(cfg.Checks.PrimaryInterfaceOverride)
@@ -99,19 +103,58 @@ func (m *Manager) RunNetworkCycle(ctx context.Context) {
 	m.Bus.Publish("metrics.interface.updated", sample.Metrics)
 
 	// Alert rules: interface down, drops increasing, traffic spike (§8.3).
+	m.observeLinks(ctx, sample)
+	m.checkTrafficSpike(ctx, sample)
+}
+
+// watchedInterface records primary and returns the interface link alerts
+// should watch: the current primary, or the last one seen when there is none.
+func (m *Manager) watchedInterface(primary string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if primary != "" {
+		m.lastPrimary = primary
+	}
+	return m.lastPrimary
+}
+
+// observeLinks feeds the interface-down and dropped-packet rules for one
+// sample.
+func (m *Manager) observeLinks(ctx context.Context, sample *InterfaceSample) {
+	watched := m.watchedInterface(sample.Primary)
+
+	// Link rules only fire for the interface this machine depends on. They used
+	// to fire for every interface, so a laptop on Wi-Fi with an ethernet port
+	// it never uses reported that port as a fault on every cycle — a permanent
+	// warning, 15 health points lost, and a Troubleshoot page telling the user
+	// to check a cable that does not exist. An unused port being down is not a
+	// problem; the connection you are actually using being down is.
+	//
+	// Every other interface is still observed, as healthy, rather than skipped:
+	// that is what lets an alert raised before this rule existed (or before the
+	// machine switched from ethernet to Wi-Fi) resolve through the engine's
+	// normal hysteresis instead of staying open forever.
+	//
+	// Trade-off: a machine with two live uplinks is only warned about the one
+	// carrying the default route. Restarting the daemon with the cable already
+	// out also leaves nothing to watch until a route appears; the gateway and
+	// internet rules still report the outage in both cases.
 	for _, iface := range sample.Interfaces {
 		m.Alerts.Observe(ctx, engine.Observation{
 			RuleKey: engine.RuleInterfaceDown, Source: iface.Name,
 			Severity: models.SeverityWarning,
 			Title:    "Interface down",
 			Message:  fmt.Sprintf("Interface %s is %s", iface.Name, orUnknown(iface.State)),
-			Failing:  iface.State == "down",
+			Failing:  iface.Name == watched && iface.State == "down",
 		})
 	}
+	// Rebuilt rather than updated in place: an interface that goes away
+	// should stop being tracked instead of lingering in the map forever.
+	drops := make(map[string]uint64, len(sample.Metrics))
 	for _, met := range sample.Metrics {
 		total := met.RxDropped + met.TxDropped
 		prev, seen := m.prevDrops[met.Name]
-		m.prevDrops[met.Name] = total
+		drops[met.Name] = total
 		if !seen {
 			continue
 		}
@@ -120,18 +163,10 @@ func (m *Manager) RunNetworkCycle(ctx context.Context) {
 			Severity: models.SeverityWarning,
 			Title:    "Dropped packets increasing",
 			Message:  fmt.Sprintf("Interface %s dropped %d packets since the last check", met.Name, total-prev),
-			Failing:  total > prev,
+			Failing:  met.Name == watched && total > prev,
 		})
 	}
-	m.checkTrafficSpike(ctx, sample)
-
-	if cfg.Collection.EnableConnectionCollection {
-		if conns, err := m.Conns.Collect(); err == nil {
-			if err := m.DB.InsertConnections(ctx, conns); err != nil {
-				m.Log.Warn("persist connections failed", "error", err)
-			}
-		}
-	}
+	m.prevDrops = drops
 }
 
 func (m *Manager) checkTrafficSpike(ctx context.Context, sample *InterfaceSample) {
@@ -254,7 +289,7 @@ func (m *Manager) observeLoss(ctx context.Context, check models.LatencyCheck, th
 
 // RunDiscoveryCycle handles `ip neigh` device discovery (main interval).
 func (m *Manager) RunDiscoveryCycle(ctx context.Context) {
-	devices, err := m.Devices.Collect(ctx)
+	devices, err := m.Devices.Collect(ctx, m.Cfg.Get().Devices.ResolveHostnames)
 	if err != nil {
 		m.Log.Warn("collector failed", "collector", "discovery", "error", err)
 		return

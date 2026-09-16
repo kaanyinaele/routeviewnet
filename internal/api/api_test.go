@@ -24,14 +24,14 @@ func testServer(host string, allowedHosts, corsOrigins []string) *Server {
 func TestHostAllowed(t *testing.T) {
 	s := testServer("127.0.0.1", []string{"nas.local"}, nil)
 	for host, want := range map[string]bool{
-		"localhost:4545":     true,
-		"127.0.0.1:4545":     true,
-		"[::1]:4545":         true,
-		"localhost":          true,
-		"nas.local:4545":     true,
-		"evil.example.com":   false, // DNS rebinding hostname
-		"evil.example:4545":  false,
-		"192.168.0.5:4545":   false, // not bound to 0.0.0.0
+		"localhost:4545":    true,
+		"127.0.0.1:4545":    true,
+		"[::1]:4545":        true,
+		"localhost":         true,
+		"nas.local:4545":    true,
+		"evil.example.com":  false, // DNS rebinding hostname
+		"evil.example:4545": false,
+		"192.168.0.5:4545":  false, // not bound to 0.0.0.0
 	} {
 		if got := s.hostAllowed(host); got != want {
 			t.Errorf("hostAllowed(%q) = %v, want %v", host, got, want)
@@ -59,12 +59,12 @@ func TestOriginAllowed(t *testing.T) {
 		return r
 	}
 	for origin, want := range map[string]bool{
-		"":                          true, // non-browser clients
-		"http://localhost:4545":     true,
-		"http://127.0.0.1:4545":     true,
-		"http://localhost:3000":     true,  // allow-listed dev server
-		"https://evil.example.com":  false, // cross-site WebSocket hijack
-		"http://192.168.0.9:4545":   false,
+		"":                         true, // non-browser clients
+		"http://localhost:4545":    true,
+		"http://127.0.0.1:4545":    true,
+		"http://localhost:3000":    true,  // allow-listed dev server
+		"https://evil.example.com": false, // cross-site WebSocket hijack
+		"http://192.168.0.9:4545":  false,
 	} {
 		if got := s.originAllowed(mkReq(origin)); got != want {
 			t.Errorf("originAllowed(%q) = %v, want %v", origin, got, want)

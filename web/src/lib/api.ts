@@ -222,6 +222,20 @@ export const api = {
     if (!res.ok) throw new Error(body?.error?.message ?? `HTTP ${res.status}`);
     return body as { settings: Record<string, any>; restart_required: boolean };
   },
+  // Publishes a synthetic alert to every delivery channel at once: it comes
+  // back over the WebSocket like a real one and is POSTed to the webhook.
+  testNotification: async () => {
+    // The JSON content type is required: it is what stops a cross-site form
+    // from triggering this, since a form cannot set it without a preflight.
+    const res = await fetch("/api/v1/notifications/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body?.error?.message ?? `HTTP ${res.status}`);
+    return body as { published: boolean; webhook_configured: boolean };
+  },
 };
 
 export function formatBytes(n: number, suffix = "B"): string {

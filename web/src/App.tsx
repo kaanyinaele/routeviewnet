@@ -1,4 +1,4 @@
-import { NavLink, Route, Routes } from "react-router-dom";
+import { NavLink, Route, Routes, useLocation } from "react-router";
 import { useLive } from "./lib/useLive";
 import OverviewPage from "./pages/Overview";
 import TrafficPage from "./pages/Traffic";
@@ -22,9 +22,15 @@ const nav = [
 
 export default function App() {
   const connected = useLive();
+  const { pathname } = useLocation();
+  // Settings centres itself across the whole column, so it opts out of the cap
+  // that keeps the other pages readable on a wide screen.
+  const capped = pathname !== "/settings";
   return (
-    <div className="flex min-h-screen">
-      <aside className="w-56 shrink-0 border-r border-[var(--border)] p-4 flex flex-col gap-1">
+    // The shell owns the viewport height and does not scroll; only <main>
+    // does, which keeps the sidebar and its connection indicator in place.
+    <div className="flex h-screen overflow-hidden">
+      <aside className="w-56 shrink-0 overflow-y-auto border-r border-[var(--border)] p-4 flex flex-col gap-1">
         <div className="mb-4 px-2">
           <div className="text-lg font-semibold">RouteViewNet</div>
           <div className="text-xs" style={{ color: "var(--ink-muted)" }}>
@@ -56,17 +62,19 @@ export default function App() {
           {connected ? "live" : "reconnecting…"}
         </div>
       </aside>
-      <main className="flex-1 p-6 max-w-6xl">
-        <Routes>
-          <Route path="/" element={<OverviewPage />} />
-          <Route path="/traffic" element={<TrafficPage />} />
-          <Route path="/devices" element={<DevicesPage />} />
-          <Route path="/internet" element={<InternetPage />} />
-          <Route path="/system" element={<SystemPage />} />
-          <Route path="/alerts" element={<AlertsPage />} />
-          <Route path="/troubleshoot" element={<TroubleshootPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-        </Routes>
+      <main className="flex-1 overflow-y-auto p-6">
+        <div className={capped ? "max-w-6xl" : ""}>
+          <Routes>
+            <Route path="/" element={<OverviewPage />} />
+            <Route path="/traffic" element={<TrafficPage />} />
+            <Route path="/devices" element={<DevicesPage />} />
+            <Route path="/internet" element={<InternetPage />} />
+            <Route path="/system" element={<SystemPage />} />
+            <Route path="/alerts" element={<AlertsPage />} />
+            <Route path="/troubleshoot" element={<TroubleshootPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+          </Routes>
+        </div>
       </main>
     </div>
   );

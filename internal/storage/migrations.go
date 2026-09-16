@@ -195,6 +195,22 @@ CREATE TABLE IF NOT EXISTS app_traffic_metrics (
 );
 CREATE INDEX IF NOT EXISTS idx_apptraffic_time ON app_traffic_metrics(collected_at);
 `,
+	// 3: drop the connections table and index the "latest row per key"
+	// lookups that /overview runs on every request.
+	//
+	// connections was written every collection cycle and read by nothing —
+	// no endpoint, no engine, no rule — so on a busy host it accumulated
+	// millions of rows and hundreds of megabytes purely to be deleted again
+	// by the retention job. The collector is gone; so is the table.
+	//
+	// The two indexes serve `WHERE id IN (SELECT MAX(id) ... GROUP BY ...)`,
+	// which previously had to scan the whole table on every /overview call.
+	`
+DROP TABLE IF EXISTS connections;
+
+CREATE INDEX IF NOT EXISTS idx_iface_metrics_name_id ON interface_metrics(interface_name, id DESC);
+CREATE INDEX IF NOT EXISTS idx_latency_target_id ON latency_checks(target, id DESC);
+`,
 }
 
 func (d *DB) migrate() error {

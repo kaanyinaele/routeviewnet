@@ -11,12 +11,23 @@ RestartSec=5
 TimeoutStopSec=15
 User=routeviewnet
 Group=routeviewnet
-# CAP_NET_RAW: raw-socket ping fallback. CAP_SYS_PTRACE plus
-# CAP_DAC_READ_SEARCH: read other users' /proc/[pid]/fd to attribute
-# network connections to apps for the per-app data usage feature. Both are
-# read-only visibility: /proc/[pid]/fd needs the ptrace READ check *and*
-# its owner-only directory permissions bypassed; no ptrace attach happens
-# and no write access is granted.
+# CAP_NET_RAW: raw-socket ping fallback.
+#
+# CAP_SYS_PTRACE plus CAP_DAC_READ_SEARCH: read other users' /proc/[pid]/fd to
+# attribute network connections to apps for the per-app data usage feature.
+# /proc/[pid]/fd needs both the ptrace READ check and its owner-only directory
+# permissions bypassed. No ptrace attach happens and no write access is
+# granted — but be clear about the size of the grant: CAP_DAC_READ_SEARCH
+# bypasses *every* file-read permission check on the system, not just the ones
+# under /proc. The daemon does not read anything else, and the sandboxing
+# below fences off the obvious credential stores, but the capability itself is
+# broad.
+#
+# If you do not want per-app data usage, set
+# collection.enable_app_traffic_monitoring: false in config.yaml AND drop
+# CAP_SYS_PTRACE/CAP_DAC_READ_SEARCH from both lines below
+# (systemctl edit routeviewnetd). Disabling the feature alone stops the reads;
+# it cannot drop a capability systemd already granted the process.
 AmbientCapabilities=CAP_NET_RAW CAP_SYS_PTRACE CAP_DAC_READ_SEARCH
 CapabilityBoundingSet=CAP_NET_RAW CAP_SYS_PTRACE CAP_DAC_READ_SEARCH
 NoNewPrivileges=true
@@ -29,13 +40,41 @@ ProtectSystem=strict
 ReadWritePaths=/var/lib/routeviewnet
 ProtectHome=true
 PrivateTmp=true
+PrivateDevices=true
 ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectKernelLogs=true
 ProtectControlGroups=true
+ProtectHostname=true
+ProtectClock=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 RestrictNamespaces=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
 SystemCallArchitectures=native
+
+# ProtectSystem/ProtectHome restrict writes and hide /home, but they do not
+# stop reads elsewhere, and CAP_DAC_READ_SEARCH ignores file permissions. Deny
+# the credential stores outright so a compromised daemon cannot read them.
+# CAP_DAC_READ_SEARCH bypasses every file-read permission check on the system,
+# so this list is load-bearing rather than cosmetic. It is still a denylist,
+# which is the wrong shape for a capability this broad — anything not named
+# here stays readable. Inverting it (TemporaryFileSystem=/ plus
+# BindReadOnlyPaths for /proc, /sys and the data directory) is the stronger
+# design and is tracked as follow-up work; it needs a full start/stop cycle to
+# validate, because a missing bind silently costs a feature rather than
+# failing loudly.
+#
+# Until then: the credential stores worth naming explicitly. Wi-Fi PSKs are
+# first because this is a network tool and an attacker reading them is the
+# most direct escalation available.
+InaccessiblePaths=-/etc/shadow -/etc/gshadow -/etc/ssh -/etc/ssl/private -/root
+InaccessiblePaths=-/etc/NetworkManager/system-connections -/etc/wpa_supplicant
+InaccessiblePaths=-/etc/letsencrypt -/etc/pki -/etc/krb5.keytab
+InaccessiblePaths=-/etc/sudoers -/etc/sudoers.d -/etc/kubernetes
+InaccessiblePaths=-/var/lib/docker -/var/lib/containers -/var/lib/secrets
 
 [Install]
 WantedBy=multi-user.target

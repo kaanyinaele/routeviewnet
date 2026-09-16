@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, Device, timeAgo } from "../lib/api";
-import { Card, Empty, StatusPill, Td, Th } from "../components/ui";
+import { Card, PageState, StatusPill, Td, Th } from "../components/ui";
 
 export default function DevicesPage() {
   const qc = useQueryClient();
-  const { data } = useQuery({ queryKey: ["devices"], queryFn: api.devices });
+  const { data, error, isLoading } = useQuery({ queryKey: ["devices"], queryFn: api.devices });
   const { data: overview } = useQuery({ queryKey: ["overview"], queryFn: api.overview });
   const gatewayIP = overview?.gateway_ip;
   const patch = useMutation({
@@ -21,7 +21,15 @@ export default function DevicesPage() {
         {data?.note ?? "Devices visible from this Linux machine."}
       </p>
       <Card>
-        {data?.items?.length ? (
+        <PageState
+          error={error}
+          isLoading={isLoading}
+          isEmpty={!data?.items?.length}
+          // The old copy taught the reader `ip neigh` as their very first
+          // impression of the page. What they need to know is that nothing is
+          // wrong and devices appear as they speak up.
+          empty="No devices seen yet. Devices show up here as they talk to your network — this can take a few minutes."
+        >
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
@@ -38,7 +46,7 @@ export default function DevicesPage() {
                 </tr>
               </thead>
               <tbody>
-                {data.items.map((d) => (
+                {data?.items?.map((d) => (
                   <DeviceRow
                     key={d.id}
                     device={d}
@@ -49,9 +57,7 @@ export default function DevicesPage() {
               </tbody>
             </table>
           </div>
-        ) : (
-          <Empty text="No devices discovered yet. Discovery reads this machine's IPv4 neighbor table (ip neigh)." />
-        )}
+        </PageState>
       </Card>
     </div>
   );

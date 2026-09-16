@@ -1,11 +1,25 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
-import { Card, Empty, StatusPill } from "../components/ui";
+import { Card, Empty, PageState, StatusPill } from "../components/ui";
 
 export default function TroubleshootPage() {
-  const { data: d } = useQuery({ queryKey: ["troubleshoot"], queryFn: api.troubleshoot });
+  const { data: d, error, isLoading } = useQuery({
+    queryKey: ["troubleshoot"],
+    queryFn: api.troubleshoot,
+  });
 
-  if (!d) return <Empty text="Loading…" />;
+  // Previously `if (!d) return "Loading…"`, which never cleared on failure:
+  // the page sat on that word forever whenever the request errored.
+  if (!d || error || isLoading) {
+    return (
+      <div className="flex flex-col gap-4">
+        <h1 className="text-xl font-semibold">Troubleshooting</h1>
+        <Card>
+          <PageState error={error} isLoading={isLoading} isEmpty={!d} empty="No diagnosis yet." />
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4">

@@ -6,9 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"mime"
 	"net"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -37,6 +39,15 @@ type Server struct {
 
 	// StaticFS serves the embedded dashboard; nil in tests.
 	Static http.Handler
+
+	// SetLogLevel re-points the daemon's log level after a settings change;
+	// nil in tests.
+	SetLogLevel func(level string)
+
+	// wsClients counts live WebSocket connections against
+	// server.max_websocket_clients. Per-Server, not package-global, so two
+	// servers in one process (tests) do not share a budget.
+	wsClients atomic.Int64
 }
 
 func (s *Server) Router() http.Handler {
@@ -44,6 +55,7 @@ func (s *Server) Router() http.Handler {
 	r.Use(middleware.Recoverer)
 	r.Use(s.hostCheck)
 	r.Use(s.cors)
+	r.Use(s.csrfGuard)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/health", s.handleHealth)
@@ -60,6 +72,7 @@ func (s *Server) Router() http.Handler {
 		r.Get("/troubleshoot", s.handleTroubleshoot)
 		r.Get("/settings", s.handleGetSettings)
 		r.Post("/settings", s.handlePostSettings)
+		r.Post("/notifications/test", s.handleTestNotification)
 		r.Get("/system/memory", s.handleSystemMemory)
 		r.Get("/system/memory/history", s.handleMemoryHistory)
 		r.Get("/system/load", s.handleSystemLoad)
@@ -109,12 +122,59 @@ func (s *Server) hostAllowed(hostport string) bool {
 	// If bound to all interfaces the user opted into LAN access (§11.2);
 	// accept the machine's own addresses by matching any private literal IP
 	// the client used to reach a wildcard bind.
+	//
+	// Restricting this to addresses actually assigned to this host was
+	// considered and rejected: a rebinding attack arrives with the attacker's
+	// *hostname* in Host (rejected above), never a bare IP, so the narrower
+	// check buys nothing — while breaking legitimate access through NAT, a
+	// port-forward, or a container where InterfaceAddrs cannot see the address
+	// the client actually used.
 	if cfg.Server.Host == "0.0.0.0" {
 		if ip := net.ParseIP(host); ip != nil {
 			return true
 		}
 	}
 	return false
+}
+
+// csrfGuard blocks cross-site state-changing requests.
+//
+// The API has no authentication, so the browser's ambient authority *is* the
+// authority: any page the user visits can POST here. CORS does not help —
+// it governs whether a response may be read, not whether a request is sent,
+// and the damage is done by the time the response is discarded.
+//
+// Two checks, because either alone has a hole:
+//
+//   - Content-Type must be JSON. A form can only send text/plain,
+//     multipart/form-data or application/x-www-form-urlencoded without a CORS
+//     preflight, so requiring JSON forces any cross-origin attempt through a
+//     preflight, which the allowlist in cors() then refuses. Without this, a
+//     form with enctype="text/plain" posts a body that json.Decode happily
+//     parses — the trailing "=" it appends is ignored, since Decode reads one
+//     value and stops.
+//   - Origin must be allowed when present. Browsers have sent Origin on
+//     cross-origin POSTs for years; non-browser clients (curl, scripts) send
+//     none, which is why this cannot be the only check.
+func (s *Server) csrfGuard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet, http.MethodHead, http.MethodOptions:
+			next.ServeHTTP(w, r)
+			return
+		}
+		mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		if err != nil || mediaType != "application/json" {
+			writeError(w, http.StatusUnsupportedMediaType, "unsupported_media_type",
+				"State-changing requests must send Content-Type: application/json")
+			return
+		}
+		if !s.originAllowed(r) {
+			writeError(w, http.StatusForbidden, "forbidden_origin", "Origin not allowed")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // cors is restrictive (§10.1.2): no wildcard, only explicit allow-listed
