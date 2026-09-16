@@ -21,15 +21,59 @@ esac
 command -v dpkg >/dev/null 2>&1 || fail "needs a Debian/Ubuntu system (dpkg not found)"
 [ "$(id -u)" = 0 ] || fail "must run as root, e.g.: curl -fsSL https://raw.githubusercontent.com/$REPO/main/install.sh | sudo sh"
 
+# --- release lookup (tests load the functions between these markers) ---
+
+# http_get URL FILE saves the response body to FILE and prints the HTTP status,
+# or 000 when no response arrived at all. It keeps the body even for error
+# statuses: `curl -f` and plain wget discard it, which made GitHub's
+# rate-limit explanation unreadable.
 if command -v curl >/dev/null 2>&1; then
-  fetch()        { curl -fsSL "$1" -o "$2"; }
-  fetch_stdout() { curl -fsSL "$1"; }
+  http_get() { curl -sL -o "$2" -w '%{http_code}' "$1" 2>/dev/null || true; }
+  fetch()    { curl -fsSL "$1" -o "$2"; }
 elif command -v wget >/dev/null 2>&1; then
-  fetch()        { wget -qO "$2" "$1"; }
-  fetch_stdout() { wget -qO- "$1"; }
+  http_get() {
+    code=$(wget -S --content-on-error -O "$2" "$1" 2>&1 | awk '$1 ~ /^HTTP\// {c = $2} END {print c}')
+    echo "${code:-000}"
+  }
+  fetch()    { wget -qO "$2" "$1"; }
 else
   fail "needs curl or wget"
 fi
+
+# find_release API_URL META_FILE prints the .deb download URL, or fails with a
+# message about what actually went wrong. Each failure gets its own message:
+# a single "could not reach GitHub" used to blame the network when GitHub had
+# answered perfectly well that the repository or release does not exist.
+find_release() {
+  status=$(http_get "$1" "$2")
+  case "$status" in
+    200) ;;
+    000)
+      fail "could not reach GitHub to look up the latest release.
+  Check this machine's internet connection and try again.
+  Behind a proxy? Set https_proxy before running this." ;;
+    403 | 429)
+      if grep -qi 'rate limit' "$2" 2>/dev/null; then
+        fail "GitHub is rate-limiting this network, so the release could not be looked up.
+  This is a limit on unauthenticated requests, not a problem with your machine.
+  Wait an hour, or download the .deb by hand:
+  https://github.com/$REPO/releases/latest"
+      fi
+      fail "GitHub refused the release lookup (HTTP $status)." ;;
+    404)
+      fail "GitHub has no public release for $REPO.
+  The repository may be private or renamed, or it has not published a release yet.
+  If you have access, download the .deb from https://github.com/$REPO/releases" ;;
+    *)
+      fail "GitHub answered the release lookup with HTTP $status. Try again shortly." ;;
+  esac
+  url=$(grep -o '"browser_download_url": *"[^"]*_amd64\.deb"' "$2" | head -1 | cut -d'"' -f4) || true
+  [ -n "${url:-}" ] || fail "the latest release has no amd64 .deb attached.
+  See https://github.com/$REPO/releases"
+  echo "$url"
+}
+
+# --- end release lookup ---
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT INT TERM
@@ -38,24 +82,7 @@ META="$TMP/release.json"
 LOG="$TMP/install.log"
 
 say "Finding the latest RouteViewNet release..."
-# Each way this can fail needs its own message. Collapsing them into one
-# "no .deb asset" line blamed the project for what is usually a local
-# network problem, and left the reader with nothing to act on.
-if ! fetch_stdout "$API" >"$META" 2>/dev/null; then
-  fail "could not reach GitHub to look up the latest release.
-  Check this machine's internet connection and try again.
-  Behind a proxy? Set https_proxy before running this.
-  Or download the .deb by hand: https://github.com/$REPO/releases/latest"
-fi
-if grep -q 'API rate limit exceeded' "$META" 2>/dev/null; then
-  fail "GitHub is rate-limiting this network, so the release could not be looked up.
-  This is a limit on unauthenticated requests, not a problem with your machine.
-  Wait an hour, or download the .deb by hand:
-  https://github.com/$REPO/releases/latest"
-fi
-URL=$(grep -o '"browser_download_url": *"[^"]*_amd64\.deb"' "$META" | head -1 | cut -d'"' -f4) || true
-[ -n "${URL:-}" ] || fail "the latest release has no amd64 .deb attached.
-  See https://github.com/$REPO/releases"
+URL=$(find_release "$API" "$META")
 
 say "Downloading $URL"
 fetch "$URL" "$DEB" || fail "the download failed. Check your connection and try again."
