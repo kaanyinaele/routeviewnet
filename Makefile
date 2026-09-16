@@ -72,7 +72,11 @@ deb: all
 	mkdir -p build/deb/DEBIAN build/deb/usr/bin build/deb/lib/systemd/system build/deb/etc/routeviewnet
 	mkdir -p build/deb/usr/share/applications build/deb/usr/share/icons/hicolor/scalable/apps
 	mkdir -p build/deb/usr/lib/routeviewnet build/deb/usr/share/doc/routeviewnet
-	cp packaging/debian/control build/deb/DEBIAN/control
+	@# The package version must come from VERSION. control used to be copied
+	@# verbatim with a hardcoded "Version: 1.0.0", so `make deb VERSION=1.1.0`
+	@# built routeviewnet_1.1.0_amd64.deb that told dpkg it was still 1.0.0 —
+	@# and the installer, which compares versions, would never update anyone.
+	sed 's/^Version: .*/Version: $(VERSION)/' packaging/debian/control > build/deb/DEBIAN/control
 	install -m 0755 packaging/debian/postinst build/deb/DEBIAN/postinst
 	install -m 0755 packaging/debian/postrm  build/deb/DEBIAN/postrm
 	install -m 0755 packaging/debian/prerm   build/deb/DEBIAN/prerm

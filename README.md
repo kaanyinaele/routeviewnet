@@ -59,6 +59,15 @@ One-liner (downloads the latest release from GitHub and installs it):
 curl -fsSL https://raw.githubusercontent.com/kaanyinaele/routeviewnet/main/install.sh | sudo sh
 ```
 
+**To update**, run the same command again. It compares your installed version
+with the latest release: it updates if a newer one exists (your settings and
+history are kept, and the monitor restarts onto the new version), and tells
+you when you are already up to date. To reinstall the current version:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kaanyinaele/routeviewnet/main/install.sh | sudo sh -s -- --reinstall
+```
+
 Or build and install from source:
 
 ```bash
