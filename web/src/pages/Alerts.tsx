@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, timeAgo } from "../lib/api";
-import { Card, Empty, StatusPill, Td, Th } from "../components/ui";
+import { Card, PageState, StatusPill, Td, Th } from "../components/ui";
 
 export default function AlertsPage() {
   const [status, setStatus] = useState<"open" | "resolved" | "">("open");
-  const { data } = useQuery({
+  const { data, error, isLoading } = useQuery({
     queryKey: ["alerts", status],
     queryFn: () => api.alerts(status || undefined),
   });
@@ -29,7 +29,12 @@ export default function AlertsPage() {
       </div>
 
       <Card>
-        {data?.items?.length ? (
+        <PageState
+          error={error}
+          isLoading={isLoading}
+          isEmpty={!data?.items?.length}
+          empty={status === "open" ? "No open alerts. Everything looks healthy." : "No alerts."}
+        >
           <table className="w-full">
             <thead>
               <tr className="border-b" style={{ borderColor: "var(--border)" }}>
@@ -42,7 +47,7 @@ export default function AlertsPage() {
               </tr>
             </thead>
             <tbody>
-              {data.items.map((a) => (
+              {data?.items?.map((a) => (
                 <tr key={a.id} className="border-b align-top" style={{ borderColor: "var(--border)" }}>
                   <Td>
                     <StatusPill status={a.severity} />
@@ -67,9 +72,7 @@ export default function AlertsPage() {
               ))}
             </tbody>
           </table>
-        ) : (
-          <Empty text={status === "open" ? "No open alerts. Everything looks healthy." : "No alerts."} />
-        )}
+        </PageState>
       </Card>
     </div>
   );
