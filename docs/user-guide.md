@@ -239,6 +239,9 @@ the results are still meaningful, just measured slightly differently.
 Every problem RouteViewNet detects becomes an alert with a plain-English
 message, the time it started, and, once things recover, the time it
 cleared. Alerts resolve **automatically**; there is nothing to dismiss.
+That includes alerts about things that are simply gone: if you leave a
+network or unplug an adapter, its alerts clear by themselves within about
+15 minutes, because RouteViewNet can no longer see anything wrong with them.
 
 To avoid crying wolf, an alert only opens after the problem is seen **twice
 in a row**, and only clears after things look fine twice in a row. So a

@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"time"
 
 	"routeviewnet/internal/models"
 	"routeviewnet/internal/storage"
@@ -138,16 +139,69 @@ func (e *AlertEngine) Observe(ctx context.Context, obs Observation) {
 		if oks < e.ResolveM() {
 			return // resolve debounce (§8.4.3)
 		}
-		if err := e.db.ResolveAlert(ctx, open.ID); err != nil {
-			e.log.Warn("alert resolve failed", "rule", obs.RuleKey, "error", err)
-			return
-		}
-		e.log.Info("alert resolved", "rule", obs.RuleKey, "source", obs.Source)
-		open.Status = models.StatusResolved
-		_ = e.db.InsertEvent(ctx, "alert.resolved", open.Severity, MarshalPayload(open))
-		e.bus.Publish("alert.resolved", open)
-		if e.OnChange != nil {
+		if e.resolve(ctx, open) && e.OnChange != nil {
 			e.OnChange(ctx)
 		}
 	}
+}
+
+// resolve closes one open alert and announces it. It reports whether the
+// alert was actually resolved, so callers can decide when to recompute.
+func (e *AlertEngine) resolve(ctx context.Context, open *models.Alert, logArgs ...any) bool {
+	if err := e.db.ResolveAlert(ctx, open.ID); err != nil {
+		e.log.Warn("alert resolve failed", "rule", open.RuleKey, "error", err)
+		return false
+	}
+	e.log.Info("alert resolved", append([]any{"rule", open.RuleKey, "source", open.Source}, logArgs...)...)
+	open.Status = models.StatusResolved
+	_ = e.db.InsertEvent(ctx, "alert.resolved", open.Severity, MarshalPayload(open))
+	e.bus.Publish("alert.resolved", open)
+	return true
+}
+
+// SweepStale resolves open alerts that nothing has re-observed since cutoff.
+//
+// An alert only resolves when its source is observed healthy — but a source
+// can simply stop being observed. Leave a network and its router is never
+// pinged again; unplug a USB adapter and it drops out of the interface list;
+// devices on a network you left are never rescanned; disable a collector and
+// its checks stop. Before this, every such alert stayed open forever: a
+// laptop that had moved between networks sat at "critical" for weeks with its
+// connection working fine.
+//
+// A genuinely failing source is re-observed every cycle, and each of those
+// observations refreshes updated_at, so an alert untouched since cutoff has no
+// evidence it is still failing. Resolving it is the honest state. If the
+// source comes back and fails again, the normal debounce reopens it.
+//
+// updated_at is stored to the second, so the cutoff is truncated to the
+// second: an alert touched during the cutoff's own second is kept rather than
+// swept on a rounding technicality.
+func (e *AlertEngine) SweepStale(ctx context.Context, cutoff time.Time) (int, error) {
+	open, err := e.db.OpenAlerts(ctx)
+	if err != nil {
+		return 0, err
+	}
+	cutoff = cutoff.Truncate(time.Second)
+	swept := 0
+	for i := range open {
+		a := &open[i]
+		if !a.UpdatedAt.Before(cutoff) {
+			continue
+		}
+		if !e.resolve(ctx, a, "reason", "source no longer observed",
+			"last_observed", a.UpdatedAt.Format(time.RFC3339)) {
+			continue
+		}
+		e.mu.Lock()
+		k := key(a.RuleKey, a.Source)
+		delete(e.failures, k)
+		delete(e.healthy, k)
+		e.mu.Unlock()
+		swept++
+	}
+	if swept > 0 && e.OnChange != nil {
+		e.OnChange(ctx)
+	}
+	return swept, nil
 }
