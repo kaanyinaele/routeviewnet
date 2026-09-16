@@ -3,6 +3,7 @@
 /routeviewnet-gui
 /build/
 *.deb
+/SHA256SUMS
 
 # Staged dashboard build (a committed placeholder index.html keeps
 # `go build` working before the first web build)

@@ -19,7 +19,7 @@
 # that as root leaves root-owned files in ./web.
 
 GO      ?= go
-VERSION ?= 1.0.0
+VERSION ?= 1.0.1
 
 # Where the packaged binary is kept so a bad local build is always reversible.
 BACKUP  ?= /var/backups/routeviewnet/routeviewnetd.packaged
@@ -95,6 +95,7 @@ deb: all
 	install -m 0644 docs/user-guide.md build/deb/usr/share/doc/routeviewnet/user-guide.md
 	install -m 0644 README.md build/deb/usr/share/doc/routeviewnet/README.md
 	dpkg-deb --build --root-owner-group build/deb routeviewnet_$(VERSION)_amd64.deb
+	sha256sum routeviewnet_$(VERSION)_amd64.deb > SHA256SUMS
 
 run: build
 	mkdir -p tmp
@@ -155,4 +156,4 @@ rollback-local:
 	@echo "restored the packaged binary from $(BACKUP)"
 
 clean:
-	rm -rf routeviewnetd routeviewnet-gui build tmp web/dist
+	rm -rf routeviewnetd routeviewnet-gui build tmp web/dist SHA256SUMS

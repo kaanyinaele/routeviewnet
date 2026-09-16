@@ -64,3 +64,16 @@ so `go build` works before the first web build.
   particular `[ cond ] && var=x` as a standalone statement *exits the script*
   when the test is false; use a full `if`. `read` cannot parse `/proc/sys`
   files directly either (EOF after the first `read(2)`) — pipe through `cat`.
+
+## Publishing a Release
+
+1. Update the version in `Makefile` (`VERSION ?= x.y.z`), `packaging/debian/control`, and `cmd/routeviewnetd/main.go`.
+2. Build the Debian package:
+   ```bash
+   make deb VERSION=x.y.z
+   ```
+   This compiles the web dashboard and binaries, packages `routeviewnet_x.y.z_amd64.deb`, and automatically computes `SHA256SUMS`.
+3. Create the GitHub release (tag `vx.y.z`) and attach **both** artifacts:
+   - `routeviewnet_x.y.z_amd64.deb`
+   - `SHA256SUMS`
+   The installer script (`install.sh`) verifies the downloaded package against `SHA256SUMS` before running `dpkg`/`apt`.

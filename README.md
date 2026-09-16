@@ -72,7 +72,7 @@ Or build and install from source:
 
 ```bash
 make deb
-sudo dpkg -i routeviewnet_1.0.0_amd64.deb
+sudo dpkg -i routeviewnet_1.0.1_amd64.deb
 ```
 
 The daemon is **enabled and started automatically** on install (opt out with

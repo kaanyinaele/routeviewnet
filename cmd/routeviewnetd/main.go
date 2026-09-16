@@ -25,7 +25,7 @@ import (
 	"routeviewnet/internal/web"
 )
 
-var version = "1.0.0"
+var version = "1.0.1"
 
 func main() {
 	configPath := flag.String("config", "/etc/routeviewnet/config.yaml", "path to config.yaml")

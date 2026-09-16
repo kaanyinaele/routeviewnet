@@ -74,8 +74,9 @@ a browser first; it is a short, readable script.)
 page on GitHub, then install it:
 
 ```bash
-sudo dpkg -i routeviewnet_1.0.0_amd64.deb
+sudo dpkg -i routeviewnet_1.0.1_amd64.deb
 ```
+*(If you downloaded a newer version, replace `1.0.1` with the version number in your file).*
 
 Most file managers also let you double-click the .deb, though the
 terminal command gives clearer messages if something goes wrong.
