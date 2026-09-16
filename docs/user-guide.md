@@ -288,7 +288,7 @@ Bigger problems cost more:
 | Noticeable packet loss | 15 |
 | Website-name lookups failing | 20 |
 | Website-name lookups slow | 10 |
-| A network connection went down | 15 |
+| The connection you are using went down | 15 |
 | Network hiccups increasing | 10 |
 | Memory nearly full | 15 |
 | Heavy swap use | 10 |
